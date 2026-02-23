@@ -1,0 +1,38 @@
+❯ so, can we say now it "learned" without  backprop and grad descent ?                                                                                        
+                                                                       
+● Let me get the actual frozen-weight numbers first before answering:                                                                                         
+                                         
+● Bash(node experiments/experiment-001.mjs 2>&1)                                                                                                              
+  ⎿  === mcfeedback — Experiment 001: Pattern Association ===
+                                                                                                                                                              
+     --- Baseline ---                                       
+     … +28 lines (ctrl+o to expand)                                                                                                                           
+                                                                                                                                                              
+● Honestly — no, not yet. Here's the honest read:                                                                                                             
+                                                                                                                                                              
+  Baseline       55%   (random chance is 50%)                                                                                                                 
+  Ambient only   45%   (below random chance)
+  Dampening only 45%   (below random chance)                                                                                                                  
+  Full model     60%   (above chance, but marginally)                                                                                                         
+
+  The frozen-weight evaluation is much harsher than the training-time numbers suggested. Two conditions are actually worse than random. Only the full model is
+   meaningfully above chance, and 60% on 4 patterns is a weak result.
+
+  What this tells us:
+
+  - The algorithm is doing something — full model consistently above baseline — but the weights aren't reliably encoding the input→output associations
+  - The training-time accuracy numbers we were seeing (80% in "Ambient only") were partly due to evaluating while still learning during the eval step, and
+  partly noise
+  - Results are also stochastic run to run — the random network initialisation matters a lot with only 1000 episodes
+
+  What needs to happen before we can say "it learned":
+
+  1. Stable convergence — the threshold drift and fire rate instability are unresolved. The algorithm hasn't found a stable operating regime yet
+  2. Consistent results across seeds — one run isn't enough; we'd need to average over multiple random initialisations
+  3. Clearly above chance — ideally >80% frozen-weight accuracy across seeds before making the claim
+
+  What we can say right now: The architecture is coherent, the local rules are functioning, and the full model does better than an undifferentiated Hebbian
+  baseline. That's a meaningful start — but "learned" is a stronger claim than the current results support.
+
+  The honest answer is: Phase 1 is a proof of mechanism, not yet a proof of learning.
+

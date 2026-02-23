@@ -4,7 +4,7 @@ Current: Astrocyte-Mediated Learning via Local Perturbation with Global Scalar R
 # Exploration in Biologically Inspired Computing
 An Experimental Exploration in Biologically Inspired Computing
 This is an experimental journey through biologically inspired local learning algorithms for neural networks. The repository documents the full path from initial hypothesis to working mechanism, including every failure along the way. It is not a polished library — it is a research log in code form.
-See astrocyte_paper.pdf in the root directory for the full writeup with results, analysis, and references.
+See astrocyte_writeup.pdf in the root directory for the full writeup with results, analysis, and references.
 
 # About
 What this is about

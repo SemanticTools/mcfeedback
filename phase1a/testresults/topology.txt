@@ -1,0 +1,56 @@
+mcfeedback — Network Topology (experiments 001–010)
+=====================================================
+
+HIDDEN LAYERS: None (not a layered feedforward network)
+
+Architecture: 2 recurrent clusters, probabilistically fully connected.
+
+  Cluster 0 (input side)          Cluster 1 (output side)
+  ────────────────────────        ────────────────────────
+   2  modulatory neurons           2  modulatory neurons
+   5  input neurons                5  output neurons
+  23  regular neurons             23  regular neurons
+  ──────────────────              ──────────────────
+  30  total                       30  total
+
+  Grand total: 60 neurons, ~0 synapses from/to modulatories
+
+Connectivity (probabilistic, all-to-all within constraints):
+  Intra-cluster: 60% connection probability   (cluster 0↔0, cluster 1↔1)
+  Inter-cluster: 50% connection probability   (cluster 0↔1, bidirectional)
+  Recurrent:     yes — no restriction on direction within or between clusters
+  Self-loops:    excluded
+
+  Expected synapse count: ~800–900 (regular neurons only)
+
+What the "regular" neurons do:
+  The 23 regular neurons in each cluster are neither input nor output.
+  They sit between the input nodes and the output nodes and can relay
+  signals, but they are NOT a dedicated hidden layer:
+    - They are not arranged in layers
+    - They receive feedback from output neurons
+    - They connect back to input neurons
+    - Each seed produces a different random wiring
+
+Why this matters for our experiments:
+  There is no clean input→hidden→output signal path.
+  Learning must work across a tangled recurrent graph.
+  The flag gate mechanism has to find useful synapses in this soup —
+  which is likely why saturation is so hard to avoid: every synapse
+  participates on almost every step.
+
+Signal flow (simplified):
+  Input neurons (clamped to pattern)
+       ↓  (via weighted synapses, intra + inter)
+  Regular neurons in both clusters (recurrent, tangled)
+       ↓
+  Output neurons (compared to target → reward signal)
+       ↓
+  Modulatory neurons fire if reward ≠ 0
+       ↓
+  Chemical diffuses spatially → modulates weight updates
+
+Clusters are spaced 10 units apart along X axis.
+Neurons within each cluster are scattered in ±2 unit spread (3D).
+Ambient field radius: 3 units (affects intra-cluster neighbours only).
+Chemical diffusion radius: 15 units (spans both clusters in Full model).

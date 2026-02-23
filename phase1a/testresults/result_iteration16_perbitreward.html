@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 16: perBitReward + flagStrengthThreshold=0</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0f13; color: #e0e0e0; max-width: 960px; margin: 0 auto; padding: 2rem; }
+  h1 { color: #7eb8f7; font-size: 1.4rem; border-bottom: 1px solid #2a2a3a; padding-bottom: 0.5rem; }
+  h2 { color: #a0c4ff; font-size: 1.1rem; margin-top: 2rem; }
+  pre { background: #16161e; border: 1px solid #2a2a3a; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.88rem; }
+  th { background: #1e1e2e; color: #a0c4ff; padding: 0.5rem 0.8rem; text-align: left; border-bottom: 2px solid #3a3a5a; }
+  td { padding: 0.45rem 0.8rem; border-bottom: 1px solid #1e1e2e; }
+  tr:hover td { background: #1a1a28; }
+  .good { color: #6fcf97; }
+  .bad { color: #eb5757; }
+  .neutral { color: #b0b0c0; }
+  .highlight { color: #f6c90e; font-weight: bold; }
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.78rem; font-weight: bold; }
+  .tag-new { background: #1b3a4a; color: #7eb8f7; }
+  .tag-bad { background: #4a1b1b; color: #eb5757; }
+  .tag-warn { background: #3a2a0a; color: #f6c90e; }
+  .tag-ok { background: #1a3a1a; color: #6fcf97; }
+  .verdict { background: #1a1a28; border-left: 4px solid #f6c90e; padding: 1rem 1.2rem; border-radius: 0 6px 6px 0; margin: 1.5rem 0; }
+  .verdict h3 { color: #f6c90e; margin-top: 0; }
+  .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .cg-cell { background: #16161e; border: 1px solid #2a2a3a; border-radius: 6px; padding: 0.8rem; }
+  .cg-label { font-size: 0.75rem; color: #808098; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cg-value { font-size: 1.5rem; font-weight: bold; margin: 0.3rem 0 0; }
+  code { background: #16161e; border: 1px solid #2a2a3a; border-radius: 3px; padding: 0.1rem 0.3rem; font-size: 0.82rem; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .insight-box { background: #0d1a2a; border: 1px solid #1b3a5a; border-radius: 6px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .insight-box h3 { color: #7eb8f7; margin-top: 0; }
+  .math-box { background: #0d1a12; border: 1px solid #1b4a2a; border-radius: 6px; padding: 1rem 1.2rem; margin: 1rem 0; font-family: 'Courier New', monospace; font-size: 0.82rem; }
+  .math-box h3 { color: #6fcf97; margin-top: 0; font-family: inherit; }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 16: perBitReward + flagStrengthThreshold=0</h1>
+
+<p>
+  <span class="tag tag-new">2 FIXES</span>
+  &nbsp;<span class="tag tag-warn">NEW ATTRACTOR FOUND</span>
+  &nbsp;Base: experiment-012b (exp-004 + weightDecay=0.0025). Addresses the false 55% ceiling
+  discovered in 012b: all seeds output <code>[11111]</code> for every input — a constant-output attractor, not learning.
+  10 seeds × 2000 episodes × 4 conditions.
+</p>
+
+<h2>Background: The 55% False Ceiling</h2>
+<p>
+  All experiments through 015 reported ~55% accuracy. Per-pattern diagnostic revealed the root cause:
+  every seed output <code>[11111]</code> for all 4 input patterns — a constant-output attractor.
+  The global modulatory reward signal (one scalar broadcast to all synapses) contains no information
+  about <em>which</em> output bits are wrong. The network finds the best constant output and stalls.
+</p>
+<p>
+  With patterns P1→<code>[01010]</code>, P2→<code>[00111]</code>, P3→<code>[01110]</code>, P4→<code>[10101]</code>:
+  <code>[11111]</code> scores (40+60+60+60)/4 = <strong>55%</strong> — the "ceiling" was arithmetic, not learning.
+</p>
+
+<h2>Fixes Applied</h2>
+
+<div class="two-col">
+  <div class="insight-box">
+    <h3>1. perBitReward: true</h3>
+    <p style="font-size:0.85rem;margin:0">Each output neuron diffuses its own correctness signal spatially (replacing global modulatory broadcast):</p>
+    <ul style="font-size:0.82rem;color:#b0b0c0;margin:0.5rem 0 0">
+      <li>Correct fire (out=1, target=1) → <span class="good">+positive chemical</span></li>
+      <li>Wrong fire (out=1, target=0) → <span class="bad">−negative chemical</span></li>
+      <li>Wrong silence (out=0, target=1) → <span class="bad">−negative chemical</span> (×mismatch trace → strengthen)</li>
+      <li>Correct silence (out=0, target=0) → <strong>zero chemical</strong> (critical: positive here × mismatch trace would weaken active→silent synapses, destroying discrimination)</li>
+    </ul>
+  </div>
+  <div class="insight-box">
+    <h3>2. flagStrengthThreshold: 0</h3>
+    <p style="font-size:0.85rem;margin:0">Bypasses the flag gate in <code>updateWeight</code>. The flag gate replaces the signed <code>eligibilityTrace</code> with always-positive <code>flagStrength</code>, discarding the sign:</p>
+    <pre style="margin:0.5rem 0 0;font-size:0.78rem;">// With flagStrengthThreshold > 0:
+trace = flagStrength;  // ALWAYS [0,1] — sign lost!
+// Mismatch trace (-0.5) + neg chemical (-1):
+// intended +0.005, got -0.006 (wrong direction)</pre>
+    <p style="font-size:0.82rem;color:#b0b0c0;margin:0.5rem 0 0">Setting threshold=0 bypasses the gate: <code>trace = eligibilityTrace</code> (signed, correct).</p>
+  </div>
+</div>
+
+<h2>Config</h2>
+<pre>learningRate:                0.01
+weightDecay:                 0.0025   (unchanged from 012b)
+flagStrengthThreshold:       0        ← bypass flag gate (was 0.5)
+perBitReward:                true     ← each output bit broadcasts its own signal (NEW)
+chemicalDiffusionRadius:     15.0
+positiveRewardStrength:      +1.0
+negativeRewardStrength:      −1.0
+trainingEpisodes:            2000     (extended from 1000)</pre>
+
+<h2>Results</h2>
+
+<div class="comparison-grid">
+  <div class="cg-cell">
+    <div class="cg-label">012b (false ceiling)</div>
+    <div class="cg-value neutral">55.0%</div>
+    <div style="color:#808098;font-size:0.82rem;">10/10 seeds · std 0% · all [11111]</div>
+  </div>
+  <div class="cg-cell">
+    <div class="cg-label">016 Full model</div>
+    <div class="cg-value bad">45.5%</div>
+    <div style="color:#808098;font-size:0.82rem;">1/10 seeds vary · std 1.6% · all [00000]</div>
+  </div>
+</div>
+
+<h2>Distribution by Condition</h2>
+<table>
+  <tr><th>Condition</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>All values</th></tr>
+  <tr>
+    <td>Baseline</td>
+    <td>45.0%</td><td>0.0%</td><td>45%</td><td>45%</td>
+    <td class="neutral" style="font-size:0.78rem;">45% 45% 45% 45% 45% 45% 45% 45% 45% 45%</td>
+  </tr>
+  <tr>
+    <td>Ambient only</td>
+    <td>49.0%</td><td>8.4%</td><td>35%</td><td>65%</td>
+    <td class="neutral" style="font-size:0.78rem;">45% 35% 45% 50% 50% 45% 45% 50% 65% 60%</td>
+  </tr>
+  <tr>
+    <td>Dampening only</td>
+    <td>44.5%</td><td>3.7%</td><td>35%</td><td>50%</td>
+    <td class="neutral" style="font-size:0.78rem;">45% 45% 45% 45% 45% 35% 45% 45% 45% 50%</td>
+  </tr>
+  <tr>
+    <td><strong>Full model</strong></td>
+    <td><strong>45.5%</strong></td><td>1.6%</td><td>45%</td><td>50%</td>
+    <td class="neutral" style="font-size:0.78rem;">45% 45% 50% 45% 45% 45% 45% 45% 45% 45%</td>
+  </tr>
+</table>
+
+<h2>Paired t-tests vs Baseline</h2>
+<table>
+  <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Significant?</th></tr>
+  <tr><td>Ambient only vs Baseline</td><td>+4.0%</td><td>1.5</td><td>0.1239</td><td class="neutral">ns</td></tr>
+  <tr><td>Dampening only vs Baseline</td><td>−0.5%</td><td>−0.43</td><td>0.5005</td><td class="neutral">ns</td></tr>
+  <tr><td>Full model vs Baseline</td><td>+0.5%</td><td>1.0</td><td>0.2534</td><td class="neutral">ns</td></tr>
+</table>
+
+<h2>Per-Pattern Breakdown (Full model)</h2>
+<table>
+  <tr><th>Condition</th><th>P1 [01010]</th><th>P2 [00111]</th><th>P3 [01110]</th><th>P4 [10101]</th></tr>
+  <tr><td>Baseline</td><td>60.0%</td><td>40.0%</td><td>40.0%</td><td>40.0%</td></tr>
+  <tr><td>Ambient only</td><td>56.0%</td><td>42.0%</td><td>46.0%</td><td>52.0%</td></tr>
+  <tr><td>Dampening only</td><td>54.0%</td><td>38.0%</td><td>38.0%</td><td>48.0%</td></tr>
+  <tr><td><strong>Full model</strong></td><td>60.0%</td><td>42.0%</td><td>38.0%</td><td>42.0%</td></tr>
+</table>
+<p style="font-size:0.82rem;color:#808098;">P1 at 60%: [00000] correctly predicts the 3 zero-bits in [01010]. This is arithmetic, not learning.</p>
+
+<h2>Output Vector Diagnostic — Full Model</h2>
+<table>
+  <tr><th>Seed</th><th>Acc</th><th>|w|</th><th>P1 out</th><th>P2 out</th><th>P3 out</th><th>P4 out</th><th>Varies?</th><th>Exact</th></tr>
+  <tr><td>42</td><td>45%</td><td>0.498</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>137</td><td>45%</td><td>0.546</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>271</td><td>50%</td><td>0.637</td><td>[00000]</td><td>[00001]</td><td>[00001]</td><td>[00001]</td><td class="good">VARIES</td><td>0/4</td></tr>
+  <tr><td>314</td><td>45%</td><td>0.911</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>500</td><td>45%</td><td>0.553</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>618</td><td>45%</td><td>0.662</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>777</td><td>45%</td><td>0.658</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>888</td><td>45%</td><td>0.860</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>999</td><td>45%</td><td>0.500</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+  <tr><td>1234</td><td>45%</td><td>0.826</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td>[00000]</td><td class="bad">constant</td><td>0/4</td></tr>
+</table>
+<p><span class="bad">Varying: 1/10</span> &nbsp;|&nbsp; Seeds with ≥1 exact match: 0/10 &nbsp;|&nbsp; Mean exact patterns: 0.0/4</p>
+
+<div class="verdict">
+  <h3>Verdict: [00000] attractor — wrong direction, same fundamental problem</h3>
+  <p>
+    The per-bit reward successfully broke the <code>[11111]</code> attractor (55%) but created a
+    <code>[00000]</code> attractor (45%). The network's null output is now rewarded by P1 (3 correct
+    zeros in <code>[01010]</code>) but penalized elsewhere. Overall accuracy drops to 45%.
+  </p>
+  <p>
+    The sign correction (fix 2) and per-bit signal (fix 1) are <strong>directionally correct</strong> —
+    pre-experiment exploratory runs showed seed 314 reaching 75% at episode 1000. But at ep2000 the
+    network has collapsed back to zero output.
+  </p>
+</div>
+
+<h2>Root Cause: Weight Decay Dominates Learning Signal</h2>
+
+<div class="math-box">
+  <h3>Per-cycle balance for a bit that should fire in k/4 patterns:</h3>
+  <pre>wrong silence delta  = mismatch(−0.5) × chemical(−1) × lr(0.01) = +0.005 (per occurrence)
+weight decay per step = 0.0025 × sign(w)
+weight decay per cycle (4 steps) = 0.0100
+
+Net per cycle:
+  k=1 (fires 1/4):  +0.005 − 0.010 = −0.005  ← DECAY WINS  → stays at [0]
+  k=2 (fires 2/4):  +0.010 − 0.010 =  0.000  ← BALANCED    → no net drift
+  k=3 (fires 3/4):  +0.015 − 0.010 = +0.005  ← SIGNAL WINS → pushes toward [1]</pre>
+  <p style="margin:0.5rem 0 0;color:#6fcf97;">Fix for exp-017: reduce weightDecay from 0.0025 → 0.0005 (5× less).
+With decay 0.0005 (0.002/cycle):
+  k=1: +0.005 − 0.002 = +0.003  ← signal wins for all minority bits
+  k=2: +0.010 − 0.002 = +0.008
+  k=3: +0.015 − 0.002 = +0.013</p>
+</div>
+
+<p>
+  The penalty for wrong fire (target=0, output=1): co-activation(+1.0) × chemical(−1) × lr = −0.01 per occurrence.
+  Once a bit starts firing when it shouldn't, this counteracts growth strongly. So the dynamics become:
+  minority bits slowly climb (net +0.003/cycle), then if they overshoot and fire wrongly, they are quickly
+  suppressed (−0.01/cycle for wrong fires). This should produce stable discrimination rather than all-or-nothing attractors.
+</p>
+
+<h2>Next: Experiment 017</h2>
+<p>
+  Reduce <code>weightDecay: 0.0005</code> (5× less), extend to 5000 episodes, add midpoint diagnostics
+  at ep1000 and ep5000 to observe whether the peak-then-collapse pattern is eliminated.
+</p>
+
+</body>
+</html>

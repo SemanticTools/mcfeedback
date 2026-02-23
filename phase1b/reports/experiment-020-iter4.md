@@ -1,0 +1,247 @@
+# Experiment 020 — Iteration 4: Cursor Ablation (Homeostasis OFF)
+
+**Date:** 2026-02-23
+**Duration:** 14.8s
+
+## Purpose
+
+Determine whether the cursor mechanism learns independently of homeostasis.
+Iterations 1–3 showed reward climbing to ~0.68, but iteration 2 (0% acceptance, cursor idle) reached the same level.
+Homeostasis is the suspected driver. This run removes it entirely.
+
+## Configuration
+
+| Parameter | Value |
+|---|---|
+| Clusters | 2 × 30 neurons |
+| Cursor radius | 2 |
+| Perturbation std | 0.1 |
+| Acceptance | soft reward, strict > |
+| Homeostasis | OFF |
+| Episodes | 5000 |
+| Steps / episode | 10 |
+| Seeds | 42, 137, 271, 314, 500, 618, 777, 888, 999, 1234 |
+
+## Summary
+
+| Metric | Value |
+|---|---|
+| Mean cursor accuracy | 0.647 |
+| Mean control accuracy | 0.500 |
+| Seeds where cursor > control | 10 / 10 |
+| Seeds with 2+ distinct outputs (cursor) | 10 / 10 |
+| Overall accept rate | 3.5% |
+
+## Success Criteria
+
+| Criterion | Result | Pass |
+|---|---|---|
+| Cursor > Control mean accuracy | 0.647 vs 0.500 | ✅ |
+| ≥1 seed with 2+ distinct outputs | 10 seed(s) | ✅ |
+| Accept rate 5–50% | 3.5% | ❌ |
+
+## Per-Seed Results
+
+| Seed | Cursor acc | Control acc | Distinct (cursor) | Distinct (ctrl) | Accepted/Reverted | Accept% | Mean |w| start→end |
+|------|------------|-------------|-------------------|-----------------|-------------------|---------|----------------------|
+| 42 | 0.650 | 0.500 | 5 | 1 | 805/22936 | 3.4% | 0.0507 → 0.3153 |
+| 137 | 0.700 | 0.500 | 6 | 1 | 840/22617 | 3.6% | 0.0504 → 0.3968 |
+| 271 | 0.675 | 0.500 | 6 | 1 | 901/22154 | 3.9% | 0.0498 → 0.3133 |
+| 314 | 0.750 | 0.500 | 7 | 1 | 835/21910 | 3.7% | 0.0489 → 0.3593 |
+| 500 | 0.650 | 0.500 | 7 | 1 | 974/22755 | 4.1% | 0.0498 → 0.3566 |
+| 618 | 0.625 | 0.500 | 4 | 1 | 925/21309 | 4.2% | 0.0500 → 0.3562 |
+| 777 | 0.600 | 0.500 | 4 | 1 | 842/22719 | 3.6% | 0.0502 → 0.2861 |
+| 888 | 0.575 | 0.500 | 3 | 1 | 904/22658 | 3.8% | 0.0494 → 0.3706 |
+| 999 | 0.625 | 0.500 | 4 | 1 | 764/22669 | 3.3% | 0.0502 → 0.3550 |
+| 1234 | 0.625 | 0.500 | 6 | 1 | 767/22491 | 3.3% | 0.0498 → 0.3057 |
+
+## Reward & Accept Rate Trajectory (averaged across 10 seeds)
+
+| Episode | Avg Reward | Accept Rate |
+|---------|------------|-------------|
+| 0 | 0.484 | 5.0% |
+| 250 | 0.534 | 4.4% |
+| 500 | 0.590 | 11.1% |
+| 750 | 0.602 | 5.9% |
+| 1000 | 0.622 | 2.5% |
+| 1250 | 0.632 | 0.0% |
+| 1500 | 0.632 | 3.3% |
+| 1750 | 0.646 | 3.3% |
+| 2000 | 0.672 | 6.0% |
+| 2250 | 0.642 | 4.5% |
+| 2500 | 0.664 | 0.0% |
+| 2750 | 0.656 | 1.3% |
+| 3000 | 0.666 | 5.2% |
+| 3250 | 0.664 | 2.5% |
+| 3500 | 0.668 | 7.0% |
+| 3750 | 0.660 | 3.3% |
+| 4000 | 0.682 | 5.8% |
+| 4250 | 0.640 | 0.0% |
+| 4500 | 0.626 | 1.3% |
+| 4750 | 0.652 | 0.0% |
+| 4999 | 0.658 | 1.7% |
+
+## Inference Detail (per seed)
+
+
+**Seed 42** (cursor distinct=5, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00000] 0.60 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [00001] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00110] 1.00 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [10011] 1.00 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [00000] 0.60 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00000] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00011] 0.40 | [00000] 0.40 |
+
+**Seed 137** (cursor distinct=6, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00010] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [00001] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00000] 0.60 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [10010] 0.80 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01100] 1.00 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00011] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [10010] 0.80 | [00000] 0.40 |
+
+**Seed 271** (cursor distinct=6, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00010] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [10001] 0.80 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00010] 0.80 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [11000] 0.40 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01000] 0.80 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00001] 0.80 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00010] 0.60 | [00000] 0.40 |
+
+**Seed 314** (cursor distinct=7, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00010] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [00001] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00010] 0.80 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [10011] 1.00 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01100] 1.00 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00011] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [10010] 0.80 | [00000] 0.40 |
+
+**Seed 500** (cursor distinct=7, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [01000] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [10001] 0.80 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [10010] 0.60 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [00010] 0.60 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01100] 1.00 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [11000] 0.20 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [10010] 0.80 | [00000] 0.40 |
+
+**Seed 618** (cursor distinct=4, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00000] 0.60 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [01001] 0.80 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00000] 0.60 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [00010] 0.60 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01000] 0.80 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [01001] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00010] 0.60 | [00000] 0.40 |
+
+**Seed 777** (cursor distinct=4, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00000] 0.60 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [10000] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00010] 0.80 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [00000] 0.40 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [00100] 0.80 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00000] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00010] 0.60 | [00000] 0.40 |
+
+**Seed 888** (cursor distinct=3, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [00000] 0.60 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [10000] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00000] 0.60 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [10000] 0.60 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [00100] 0.80 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [00000] 0.60 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00000] 0.40 | [00000] 0.40 |
+
+**Seed 999** (cursor distinct=4, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [01000] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [00000] 0.40 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [00010] 0.80 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [11010] 0.60 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [00000] 0.60 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [01000] 0.40 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [11010] 1.00 | [00000] 0.40 |
+
+**Seed 1234** (cursor distinct=6, control distinct=1)
+
+| Pat | Input | Target | Cursor out / acc | Control out / acc |
+|-----|-------|--------|------------------|-------------------|
+| P1 | [00000] | [10101] | [00000] 0.40 | [00000] 0.40 |
+| P2 | [10000] | [01010] | [01000] 0.80 | [00000] 0.60 |
+| P3 | [01000] | [11001] | [00001] 0.60 | [00000] 0.40 |
+| P4 | [00100] | [00110] | [01110] 0.80 | [00000] 0.60 |
+| P5 | [00010] | [10011] | [00000] 0.40 | [00000] 0.40 |
+| P6 | [00001] | [01100] | [01100] 1.00 | [00000] 0.60 |
+| P7 | [11000] | [00101] | [01000] 0.40 | [00000] 0.60 |
+| P8 | [00110] | [11010] | [00010] 0.60 | [00000] 0.40 |
+
+## Conclusion
+
+Cursor beat Control on all 10 seeds (mean 0.647 vs 0.500), confirming the core hypothesis: global reward + local perturbation is sufficient for learning. The 3.5% accept rate was the one failing criterion. At the time this was attributed to perturbation being too destructive or selection pressure too high. Experiment 021 revised that interpretation — see comparison below.
+
+## Experiment 021 Comparison
+
+Experiment 021 replaced the random cursor with activity-dependent astrocytes (8 fixed territories, threshold adaptation) run on the same 10 seeds. The cursor results in this table are reproduced directly from iteration 4 for alignment.
+
+| Seed | Astrocyte (exp021) | Cursor (iter4) | Control | Δ |
+|------|--------------------|----------------|---------|---|
+| 42   | 0.700              | 0.650          | 0.500   | +0.050 |
+| 137  | 0.725              | 0.700          | 0.500   | +0.025 |
+| 271  | 0.725              | 0.675          | 0.500   | +0.050 |
+| 314  | 0.775              | 0.750          | 0.500   | +0.025 |
+| 500  | 0.650              | 0.650          | 0.500   | 0.000  |
+| 618  | 0.625              | 0.625          | 0.500   | 0.000  |
+| 777  | 0.625              | 0.600          | 0.500   | +0.025 |
+| 888  | 0.575              | 0.575          | 0.500   | 0.000  |
+| 999  | 0.600              | 0.625          | 0.500   | −0.025 |
+| 1234 | 0.675              | 0.625          | 0.500   | +0.050 |
+| **mean** | **0.668**      | **0.648**      | **0.500** | **+0.020** |
+
+| Metric | Astrocyte | Cursor |
+|--------|-----------|--------|
+| Mean accuracy | 0.668 | 0.648 |
+| Accept rate | ~38% | ~3.5% |
+| Seeds beating cursor | 7 / 10 | — |
+
+**Revised interpretation of the 3.5% accept rate:** The low accept rate was not caused by over-destructive perturbations. It was caused by the random walk cursor spending most steps in sparse network regions where no eligible synapses existed, and when synapses were found, the perturbation signal was too weak for the coarse binary reward to detect improvement. Astrocytes solved both problems: activity-sensing routes perturbations to currently-active synapses (where reward improvement is possible), lifting the accept rate to ~38% — a 10× increase — while accuracy improved by +2% mean across seeds.
+
+The cursor mechanism works. The astrocyte mechanism works better for the same reason the hypothesis predicted: activity-guided plasticity is smarter than random spatial search.

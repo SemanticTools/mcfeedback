@@ -1,0 +1,3439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Experiment 024 — Maturity-Scaled Exploration</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 24px; color: #222; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { margin-top: 2em; color: #444; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.88em; }
+  th, td { border: 1px solid #ccc; padding: 4px 9px; text-align: left; }
+  th { background: #f0f0f0; }
+  .meta { color: #666; font-size: 0.9em; }
+  .pass { color: #080; font-weight: bold; }
+  .fail { color: #c00; font-weight: bold; }
+  .conclusion { background: #f8f8f8; border-left: 4px solid #555; padding: 12px 16px; }
+  details { margin: 0.4em 0; border: 1px solid #ddd; padding: 6px 12px; border-radius: 4px; }
+  summary { cursor: pointer; }
+  svg text { font-family: system-ui, sans-serif; font-size: 11px; }
+  .legend { display: flex; gap: 24px; font-size: 0.85em; margin-top: 4px; }
+  .legend span::before { content: ''; display: inline-block; width: 22px; height: 3px; margin-right: 6px; vertical-align: middle; }
+  .leg-mat::before  { background: #2255cc; }
+  .leg-eps::before  { background: #cc5522; }
+</style>
+</head>
+<body>
+<h1>Experiment 024 — Maturity-Scaled Exploration</h1>
+<p class="meta">Date: 2026-02-23 &nbsp;|&nbsp; Duration: 397.4s &nbsp;|&nbsp; baseEpsilon=0.3, horizon=2000</p>
+
+<h2>Hypothesis</h2>
+<p>Flat epsilon (1%) works to bootstrap cluster 1 but becomes a drag over long training.
+Cluster 0 matures by episode 5000 but keeps perturbing, accumulating drift damage. Each astrocyte
+should mature at its own pace: explorationRate = 0.3 / (1 + activationCount / 2000).
+Fresh astrocytes explore at 30%, heavily-activated ones converge toward zero.
+Maturation is per-astrocyte, mirroring biological region-specific cortical development.</p>
+
+<h2>Configuration</h2>
+<table>
+  <tr><th>Parameter</th><th>Value</th></tr>
+  <tr><td>Architecture</td><td>2 clusters × 30 neurons</td></tr>
+  <tr><td>Astrocytes</td><td>4 per cluster (8 total), territory radius 3</td></tr>
+  <tr><td>Maturity-scaled epsilon</td><td>baseEpsilon=0.3, maturityHorizon=2000</td></tr>
+  <tr><td>Flat epsilon (comparison)</td><td>1% per astrocyte per step</td></tr>
+  <tr><td>Perturbation std</td><td>0.1</td></tr>
+  <tr><td>Acceptance</td><td>soft reward, strict &gt;</td></tr>
+  <tr><td>Homeostasis</td><td>OFF</td></tr>
+  <tr><td>Episodes</td><td>20000 × 10 steps</td></tr>
+  <tr><td>Seeds</td><td>42, 137, 271, 314, 500, 618, 777, 888, 999, 1234</td></tr>
+</table>
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Metric</th><th>Maturity</th><th>Epsilon (flat)</th><th>Control</th></tr>
+  <tr><td>Mean accuracy</td><td>0.677</td><td>0.662</td><td>0.500</td></tr>
+  <tr><td>Variance</td><td>0.00343</td><td>0.00303</td><td>—</td></tr>
+  <tr><td>Mean accept rate</td><td>34.9%</td><td>35.5%</td><td>—</td></tr>
+  <tr><td>Seeds maturity &gt; epsilon</td><td>5 / 10</td><td>—</td><td>—</td></tr>
+</table>
+
+<h2>Exploration Rate Maturation</h2>
+<table>
+  <tr><th>Cluster</th><th>Ep 5000</th><th>Ep 10000</th><th>Ep 20000 (final)</th></tr>
+  <tr><td>C0 mean</td><td>0.0268</td><td>0.0142</td><td>0.0073</td></tr>
+  <tr><td>C1 mean</td><td>0.0521</td><td>0.0300</td><td>0.0167</td></tr>
+</table>
+<p>C0 matured (rate &lt; 0.03): 40/40 astrocytes across all seeds.<br>
+C1 matured (rate &lt; 0.10): 40/40 astrocytes across all seeds.</p>
+
+<h2>Success Criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Pass</th></tr>
+  <tr>
+    <td>Maturity &gt; Epsilon mean accuracy</td>
+    <td>0.677 vs 0.662</td>
+    <td class="pass">✅ Yes</td>
+  </tr>
+  <tr>
+    <td>C0 explorationRate &lt; 0.03 by ep 20000</td>
+    <td>40/40 matured</td>
+    <td class="pass">✅ Yes</td>
+  </tr>
+  <tr>
+    <td>C1 explorationRate &lt; 0.10 by ep 20000</td>
+    <td>40/40 matured</td>
+    <td class="pass">✅ Yes</td>
+  </tr>
+  <tr>
+    <td>No late-training degradation (ep15k+ &gt;= ep10k)</td>
+    <td>see trajectory</td>
+    <td class="fail">❌ No</td>
+  </tr>
+</table>
+
+<h2>Reward &amp; Accept Rate Trajectories (avg across 10 seeds)</h2>
+<svg width="720" height="280" style="border:1px solid #ddd;background:#fafafa;display:block;">
+  <line x1="55" y1="20" x2="55" y2="245" stroke="#999" stroke-width="1"/>
+  <line x1="55" y1="245" x2="700" y2="245" stroke="#999" stroke-width="1"/>
+  <line x1="55" y1="132.5" x2="700" y2="132.5" stroke="#eee" stroke-dasharray="4"/>
+  <text x="50" y="24"         text-anchor="end">1.0</text>
+  <text x="50" y="136.5" text-anchor="end">0.5</text>
+  <text x="50" y="249"      text-anchor="end">0.0</text>
+  <text x="55"       y="265" text-anchor="middle">0</text>
+  <text x="377.5" y="265" text-anchor="middle">10000</text>
+  <text x="700"   y="265" text-anchor="middle">20000</text>
+  <text x="377.5" y="280"       text-anchor="middle" fill="#666">Episode</text>
+  <polyline points="55.0,137.0 63.1,92.0 71.1,98.8 79.2,98.8 87.3,97.9 95.3,94.2 103.4,98.3 111.4,101.0 119.5,93.8 127.6,97.4 135.6,96.5 143.7,102.8 151.8,95.2 159.8,88.0 167.9,91.1 175.9,89.3 184.0,88.0 192.1,92.9 200.1,83.5 208.2,92.0 216.3,98.8 224.3,97.9 232.4,92.0 240.4,97.4 248.5,92.4 256.6,95.6 264.6,94.7 272.7,91.1 280.8,101.0 288.8,90.2 296.9,104.2 304.9,94.7 313.0,92.9 321.1,98.3 329.1,94.7 337.2,93.8 345.3,81.7 353.3,99.2 361.4,97.4 369.4,98.8 377.5,90.7 385.6,97.4 393.6,92.0 401.7,85.3 409.8,94.2 417.8,97.0 425.9,96.0 433.9,96.1 442.0,102.8 450.1,92.5 458.1,94.7 466.2,91.5 474.3,81.2 482.3,102.3 490.4,91.1 498.4,91.6 506.5,101.9 514.6,96.9 522.6,90.2 530.7,94.3 538.8,92.5 546.8,92.5 554.9,89.8 562.9,97.0 571.0,97.8 579.1,97.9 587.1,87.5 595.2,94.3 603.3,99.2 611.3,98.3 619.4,94.2 627.4,97.0 635.5,91.6 643.6,100.6 651.6,92.4 659.7,87.1 667.8,93.8 675.8,97.4 683.9,101.5 691.9,101.9 700.0,96.1"  fill="none" stroke="#2255cc" stroke-width="2"/>
+  <polyline points="55.0,135.2 63.1,100.5 71.1,95.2 79.2,95.2 87.3,95.6 95.3,87.9 103.4,93.8 111.4,97.9 119.5,93.3 127.6,92.0 135.6,94.7 143.7,92.0 151.8,88.9 159.8,92.5 167.9,101.9 175.9,92.0 184.0,94.2 192.1,102.4 200.1,101.4 208.2,95.6 216.3,81.7 224.3,87.9 232.4,96.9 240.4,98.8 248.5,99.2 256.6,94.2 264.6,97.9 272.7,97.0 280.8,99.7 288.8,94.3 296.9,103.3 304.9,91.5 313.0,96.5 321.1,97.8 329.1,95.6 337.2,99.6 345.3,90.2 353.3,100.1 361.4,89.3 369.4,97.0 377.5,95.6 385.6,92.5 393.6,101.0 401.7,93.4 409.8,98.8 417.8,93.4 425.9,106.0 433.9,92.9 442.0,90.2 450.1,94.7 458.1,91.5 466.2,97.4 474.3,99.2 482.3,100.1 490.4,97.4 498.4,97.4 506.5,92.9 514.6,99.6 522.6,93.8 530.7,89.3 538.8,92.5 546.8,93.8 554.9,94.7 562.9,95.1 571.0,97.0 579.1,92.9 587.1,92.0 595.2,91.5 603.3,98.8 611.3,101.0 619.4,99.7 627.4,96.1 635.5,92.9 643.6,97.0 651.6,94.3 659.7,100.5 667.8,101.9 675.8,104.2 683.9,100.1 691.9,94.7 700.0,100.1"  fill="none" stroke="#cc5522" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <polyline points="55.0,182.0 63.1,182.0 71.1,177.5 79.2,159.5 87.3,177.5 95.3,148.3 103.4,177.5 111.4,159.5 119.5,175.3 127.6,173.0 135.6,186.5 143.7,170.7 151.8,170.7 159.8,168.5 167.9,166.3 175.9,168.5 184.0,170.8 192.1,188.8 200.1,170.8 208.2,152.8 216.3,166.3 224.3,170.8 232.4,164.0 240.4,170.8 248.5,155.0 256.6,157.3 264.6,168.5 272.7,168.5 280.8,179.8 288.8,179.8 296.9,152.8 304.9,166.3 313.0,164.0 321.1,150.5 329.1,168.5 337.2,195.5 345.3,159.5 353.3,155.0 361.4,168.5 369.4,152.8 377.5,170.7 385.6,155.0 393.6,173.0 401.7,175.3 409.8,173.0 417.8,150.5 425.9,184.3 433.9,155.0 442.0,155.0 450.1,166.2 458.1,150.5 466.2,161.8 474.3,170.8 482.3,184.3 490.4,166.3 498.4,161.8 506.5,155.0 514.6,159.5 522.6,150.5 530.7,141.5 538.8,159.5 546.8,159.5 554.9,150.5 562.9,146.0 571.0,155.0 579.1,157.3 587.1,166.3 595.2,155.0 603.3,175.3 611.3,150.5 619.4,188.8 627.4,191.0 635.5,161.8 643.6,132.5 651.6,182.0 659.7,141.5 667.8,146.0 675.8,150.5 683.9,157.3 691.9,188.8 700.0,155.0"  fill="none" stroke="#2255cc" stroke-width="1.5" opacity="0.4"/>
+  <polyline points="55.0,175.3 63.1,170.8 71.1,164.0 79.2,161.8 87.3,177.5 95.3,137.0 103.4,168.5 111.4,186.5 119.5,170.8 127.6,157.3 135.6,164.0 143.7,150.5 151.8,159.5 159.8,170.8 167.9,175.3 175.9,148.3 184.0,177.5 192.1,166.3 200.1,155.0 208.2,155.0 216.3,150.5 224.3,175.3 232.4,166.3 240.4,166.3 248.5,170.8 256.6,161.8 264.6,170.8 272.7,157.3 280.8,182.0 288.8,168.5 296.9,159.5 304.9,157.3 313.0,168.5 321.1,157.3 329.1,159.5 337.2,170.8 345.3,152.8 353.3,182.0 361.4,159.5 369.4,168.5 377.5,161.8 385.6,161.8 393.6,177.5 401.7,175.3 409.8,182.0 417.8,155.0 425.9,168.5 433.9,159.5 442.0,164.0 450.1,166.3 458.1,170.8 466.2,164.0 474.3,188.8 482.3,175.3 490.4,173.0 498.4,155.0 506.5,139.3 514.6,161.8 522.6,179.8 530.7,164.0 538.8,159.5 546.8,159.5 554.9,161.8 562.9,166.2 571.0,152.8 579.1,188.8 587.1,148.3 595.2,150.5 603.3,143.8 611.3,168.5 619.4,161.8 627.4,159.5 635.5,173.0 643.6,148.3 651.6,164.0 659.7,173.0 667.8,141.5 675.8,166.3 683.9,152.8 691.9,159.5 700.0,166.3"  fill="none" stroke="#cc5522" stroke-width="1"   opacity="0.4" stroke-dasharray="6,3"/>
+</svg>
+<div class="legend">
+  <span class="leg-mat">Maturity reward (solid) / accept rate (faded)</span>
+  <span class="leg-eps">Epsilon reward (dashed) / accept rate (faded dashed)</span>
+</div>
+
+<h2>Per-Seed Results</h2>
+<table>
+  <tr>
+    <th>Seed</th>
+    <th>Maturity acc (d)</th><th>Epsilon acc (d)</th><th>Control acc</th>
+    <th>M&gt;E</th>
+    <th>Maturity keep/revert (%)</th><th>Epsilon keep/revert (%)</th>
+  </tr>
+  <tr>
+      <td>42</td>
+      <td>0.675 (4d)</td>
+      <td>0.650 (6d)</td>
+      <td>0.500</td>
+      <td>✅</td>
+      <td>69153/130847 (34.6%)</td>
+      <td>69332/130668 (34.7%)</td>
+    </tr>
+<tr>
+      <td>137</td>
+      <td>0.725 (7d)</td>
+      <td>0.725 (7d)</td>
+      <td>0.500</td>
+      <td>—</td>
+      <td>63801/136199 (31.9%)</td>
+      <td>64696/135304 (32.3%)</td>
+    </tr>
+<tr>
+      <td>271</td>
+      <td>0.750 (6d)</td>
+      <td>0.700 (6d)</td>
+      <td>0.500</td>
+      <td>✅</td>
+      <td>75795/124205 (37.9%)</td>
+      <td>77098/122902 (38.5%)</td>
+    </tr>
+<tr>
+      <td>314</td>
+      <td>0.775 (8d)</td>
+      <td>0.775 (6d)</td>
+      <td>0.500</td>
+      <td>—</td>
+      <td>71191/128809 (35.6%)</td>
+      <td>72447/127553 (36.2%)</td>
+    </tr>
+<tr>
+      <td>500</td>
+      <td>0.700 (5d)</td>
+      <td>0.650 (6d)</td>
+      <td>0.500</td>
+      <td>✅</td>
+      <td>78071/121929 (39.0%)</td>
+      <td>79799/120201 (39.9%)</td>
+    </tr>
+<tr>
+      <td>618</td>
+      <td>0.675 (5d)</td>
+      <td>0.625 (5d)</td>
+      <td>0.500</td>
+      <td>✅</td>
+      <td>71606/128394 (35.8%)</td>
+      <td>71846/128154 (35.9%)</td>
+    </tr>
+<tr>
+      <td>777</td>
+      <td>0.625 (7d)</td>
+      <td>0.625 (5d)</td>
+      <td>0.500</td>
+      <td>—</td>
+      <td>74204/125796 (37.1%)</td>
+      <td>76126/123874 (38.1%)</td>
+    </tr>
+<tr>
+      <td>888</td>
+      <td>0.575 (6d)</td>
+      <td>0.575 (5d)</td>
+      <td>0.500</td>
+      <td>—</td>
+      <td>68711/131289 (34.4%)</td>
+      <td>71014/128986 (35.5%)</td>
+    </tr>
+<tr>
+      <td>999</td>
+      <td>0.625 (4d)</td>
+      <td>0.625 (5d)</td>
+      <td>0.500</td>
+      <td>✅</td>
+      <td>61902/138098 (31.0%)</td>
+      <td>63757/136243 (31.9%)</td>
+    </tr>
+<tr>
+      <td>1234</td>
+      <td>0.650 (6d)</td>
+      <td>0.675 (7d)</td>
+      <td>0.500</td>
+      <td>—</td>
+      <td>63656/136344 (31.8%)</td>
+      <td>63823/136177 (31.9%)</td>
+    </tr>
+</table>
+
+<h2>Cluster Activation Breakdown</h2>
+<table>
+  <tr><th>Seed</th><th>Maturity C0</th><th>Maturity C1</th><th>Epsilon C0</th><th>Epsilon C1</th></tr>
+  <tr>
+      <td>42</td>
+      <td>363,984 (37%)</td>
+      <td>146,567 (32%)</td>
+      <td>374,143 (37%)</td>
+      <td>128,458 (32%)</td>
+    </tr>
+<tr>
+      <td>137</td>
+      <td>339,821 (34%)</td>
+      <td>178,220 (28%)</td>
+      <td>340,147 (34%)</td>
+      <td>172,319 (29%)</td>
+    </tr>
+<tr>
+      <td>271</td>
+      <td>376,357 (39%)</td>
+      <td>142,496 (36%)</td>
+      <td>382,175 (39%)</td>
+      <td>130,761 (37%)</td>
+    </tr>
+<tr>
+      <td>314</td>
+      <td>335,284 (38%)</td>
+      <td>182,470 (33%)</td>
+      <td>346,175 (38%)</td>
+      <td>165,337 (34%)</td>
+    </tr>
+<tr>
+      <td>500</td>
+      <td>361,767 (41%)</td>
+      <td>153,057 (37%)</td>
+      <td>359,291 (41%)</td>
+      <td>149,544 (39%)</td>
+    </tr>
+<tr>
+      <td>618</td>
+      <td>325,985 (38%)</td>
+      <td>196,047 (35%)</td>
+      <td>333,987 (38%)</td>
+      <td>176,944 (36%)</td>
+    </tr>
+<tr>
+      <td>777</td>
+      <td>380,239 (40%)</td>
+      <td>137,025 (33%)</td>
+      <td>389,112 (39%)</td>
+      <td>121,074 (35%)</td>
+    </tr>
+<tr>
+      <td>888</td>
+      <td>349,183 (37%)</td>
+      <td>172,182 (28%)</td>
+      <td>351,120 (38%)</td>
+      <td>163,584 (29%)</td>
+    </tr>
+<tr>
+      <td>999</td>
+      <td>350,214 (33%)</td>
+      <td>164,381 (28%)</td>
+      <td>357,065 (33%)</td>
+      <td>149,174 (29%)</td>
+    </tr>
+<tr>
+      <td>1234</td>
+      <td>326,072 (35%)</td>
+      <td>192,521 (30%)</td>
+      <td>327,802 (35%)</td>
+      <td>182,990 (30%)</td>
+    </tr>
+</table>
+
+<h2>Per-Astrocyte Diagnostics</h2>
+<details>
+      <summary><strong>Seed 42 — maturity</strong> acc=0.675, distinct=4</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.1)</td>
+        <td>8n / 467s</td>
+        <td>98740 + 1320ε</td>
+        <td>33.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0059</td>
+        <td>0.0235</td>
+        <td>0.0119</td>
+        <td>0.0059</td>
+        <td>13149</td><td>11214</td><td>13029</td><td>13004</td><td>13699</td><td>11313</td><td>11180</td><td>13472</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.1)</td>
+        <td>7n / 415s</td>
+        <td>111582 + 1070ε</td>
+        <td>40.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0052</td>
+        <td>0.0205</td>
+        <td>0.0103</td>
+        <td>0.0052</td>
+        <td>13143</td><td>15575</td><td>13165</td><td>13031</td><td>13323</td><td>15720</td><td>15589</td><td>13106</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.6)</td>
+        <td>11n / 683s</td>
+        <td>66615 + 1882ε</td>
+        <td>36.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0316</td>
+        <td>0.0165</td>
+        <td>0.0085</td>
+        <td>8524</td><td>8478</td><td>8607</td><td>8511</td><td>8764</td><td>8633</td><td>8476</td><td>8504</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.6)</td>
+        <td>12n / 770s</td>
+        <td>81227 + 1548ε</td>
+        <td>39.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0071</td>
+        <td>0.0262</td>
+        <td>0.0139</td>
+        <td>0.0071</td>
+        <td>10277</td><td>10049</td><td>10322</td><td>10361</td><td>10535</td><td>10439</td><td>10288</td><td>10504</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.6, -1.7)</td>
+        <td>11n / 690s</td>
+        <td>29937 + 2784ε</td>
+        <td>31.8%</td>
+        <td style="color:#080;font-weight:bold">0.110</td>
+        <td style="font-weight:bold">0.0173</td>
+        <td>0.0550</td>
+        <td>0.0307</td>
+        <td>0.0173</td>
+        <td>3987</td><td>4119</td><td>4019</td><td>4098</td><td>4174</td><td>4234</td><td>4069</td><td>4021</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.4, -1.7)</td>
+        <td>15n / 849s</td>
+        <td>48729 + 2113ε</td>
+        <td>33.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0114</td>
+        <td>0.0403</td>
+        <td>0.0221</td>
+        <td>0.0114</td>
+        <td>6339</td><td>6338</td><td>6442</td><td>6283</td><td>6352</td><td>6353</td><td>6365</td><td>6370</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.6, 2.7)</td>
+        <td>6n / 365s</td>
+        <td>20832 + 2874ε</td>
+        <td>30.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0233</td>
+        <td>0.0548</td>
+        <td>0.0372</td>
+        <td>0.0233</td>
+        <td>2976</td><td>2885</td><td>2942</td><td>2979</td><td>2978</td><td>3038</td><td>2948</td><td>2960</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.4, 2.7)</td>
+        <td>10n / 567s</td>
+        <td>37019 + 2279ε</td>
+        <td>31.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0145</td>
+        <td>0.0492</td>
+        <td>0.0275</td>
+        <td>0.0145</td>
+        <td>5011</td><td>4926</td><td>4949</td><td>4891</td><td>4905</td><td>4908</td><td>4900</td><td>4808</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 42 — epsilon</strong> acc=0.650, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.1)</td>
+        <td>8n / 467s</td>
+        <td>98784 + 474ε</td>
+        <td>32.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0059</td>
+        <td>0.0221</td>
+        <td>0.0118</td>
+        <td>0.0059</td>
+        <td>13420</td><td>10859</td><td>13349</td><td>13271</td><td>13334</td><td>10898</td><td>10887</td><td>13240</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.1)</td>
+        <td>7n / 415s</td>
+        <td>112199 + 365ε</td>
+        <td>39.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0052</td>
+        <td>0.0198</td>
+        <td>0.0100</td>
+        <td>0.0052</td>
+        <td>13069</td><td>15598</td><td>13322</td><td>13149</td><td>13164</td><td>15638</td><td>15596</td><td>13028</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.6)</td>
+        <td>11n / 683s</td>
+        <td>69638 + 536ε</td>
+        <td>36.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0083</td>
+        <td>0.0347</td>
+        <td>0.0177</td>
+        <td>0.0083</td>
+        <td>8907</td><td>8680</td><td>8833</td><td>8541</td><td>8788</td><td>8843</td><td>8891</td><td>8691</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.6)</td>
+        <td>12n / 770s</td>
+        <td>91657 + 490ε</td>
+        <td>39.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0064</td>
+        <td>0.0240</td>
+        <td>0.0127</td>
+        <td>0.0064</td>
+        <td>11649</td><td>11401</td><td>11590</td><td>11521</td><td>11551</td><td>11518</td><td>11549</td><td>11368</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.6, -1.7)</td>
+        <td>11n / 690s</td>
+        <td>24842 + 538ε</td>
+        <td>31.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0219</td>
+        <td>0.0727</td>
+        <td>0.0368</td>
+        <td>0.0219</td>
+        <td>3046</td><td>3244</td><td>3196</td><td>3261</td><td>3205</td><td>3188</td><td>3068</td><td>3172</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.4, -1.7)</td>
+        <td>15n / 849s</td>
+        <td>41923 + 545ε</td>
+        <td>32.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0135</td>
+        <td>0.0588</td>
+        <td>0.0282</td>
+        <td>0.0135</td>
+        <td>5329</td><td>5282</td><td>5312</td><td>5402</td><td>5300</td><td>5319</td><td>5197</td><td>5327</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.6, 2.7)</td>
+        <td>6n / 365s</td>
+        <td>24936 + 530ε</td>
+        <td>32.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0218</td>
+        <td>0.0931</td>
+        <td>0.0431</td>
+        <td>0.0218</td>
+        <td>3161</td><td>3170</td><td>3203</td><td>3259</td><td>3193</td><td>3239</td><td>3178</td><td>3063</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.4, 2.7)</td>
+        <td>10n / 567s</td>
+        <td>34639 + 505ε</td>
+        <td>32.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0162</td>
+        <td>0.0469</td>
+        <td>0.0307</td>
+        <td>0.0162</td>
+        <td>4400</td><td>4415</td><td>4358</td><td>4433</td><td>4369</td><td>4384</td><td>4412</td><td>4373</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 137 — maturity</strong> acc=0.725, distinct=7</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -1.7)</td>
+        <td>13n / 774s</td>
+        <td>104040 + 1329ε</td>
+        <td>34.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0056</td>
+        <td>0.0233</td>
+        <td>0.0112</td>
+        <td>0.0056</td>
+        <td>14756</td><td>12809</td><td>12716</td><td>14616</td><td>12576</td><td>12593</td><td>12802</td><td>12501</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -1.7)</td>
+        <td>7n / 411s</td>
+        <td>93807 + 1088ε</td>
+        <td>33.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0062</td>
+        <td>0.0235</td>
+        <td>0.0120</td>
+        <td>0.0062</td>
+        <td>10991</td><td>11087</td><td>11042</td><td>10898</td><td>13364</td><td>13250</td><td>11018</td><td>13245</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.6)</td>
+        <td>15n / 876s</td>
+        <td>58571 + 1675ε</td>
+        <td>32.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0096</td>
+        <td>0.0383</td>
+        <td>0.0181</td>
+        <td>0.0096</td>
+        <td>7213</td><td>9264</td><td>7374</td><td>7188</td><td>7342</td><td>7235</td><td>7282</td><td>7348</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.6)</td>
+        <td>9n / 551s</td>
+        <td>77996 + 1315ε</td>
+        <td>33.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0074</td>
+        <td>0.0283</td>
+        <td>0.0155</td>
+        <td>0.0074</td>
+        <td>9372</td><td>9286</td><td>11651</td><td>9277</td><td>9315</td><td>9270</td><td>11808</td><td>9332</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.7)</td>
+        <td>11n / 651s</td>
+        <td>36188 + 2264ε</td>
+        <td>28.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0148</td>
+        <td>0.0464</td>
+        <td>0.0275</td>
+        <td>0.0148</td>
+        <td>4895</td><td>4770</td><td>4765</td><td>4772</td><td>4744</td><td>4848</td><td>4855</td><td>4803</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.7)</td>
+        <td>8n / 447s</td>
+        <td>31596 + 2415ε</td>
+        <td>26.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0167</td>
+        <td>0.0582</td>
+        <td>0.0300</td>
+        <td>0.0167</td>
+        <td>4335</td><td>4266</td><td>4210</td><td>4279</td><td>4149</td><td>4258</td><td>4204</td><td>4310</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 1.6)</td>
+        <td>9n / 552s</td>
+        <td>19354 + 2759ε</td>
+        <td>25.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0249</td>
+        <td>0.0631</td>
+        <td>0.0409</td>
+        <td>0.0249</td>
+        <td>2795</td><td>2737</td><td>2813</td><td>2789</td><td>2673</td><td>2697</td><td>2890</td><td>2719</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 1.6)</td>
+        <td>6n / 383s</td>
+        <td>82236 + 1408ε</td>
+        <td>29.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0070</td>
+        <td>0.0231</td>
+        <td>0.0135</td>
+        <td>0.0070</td>
+        <td>10552</td><td>10601</td><td>10444</td><td>10392</td><td>10492</td><td>10318</td><td>10430</td><td>10415</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 137 — epsilon</strong> acc=0.725, distinct=7</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -1.7)</td>
+        <td>13n / 774s</td>
+        <td>107680 + 485ε</td>
+        <td>34.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0054</td>
+        <td>0.0200</td>
+        <td>0.0106</td>
+        <td>0.0054</td>
+        <td>15312</td><td>12899</td><td>12921</td><td>15039</td><td>13135</td><td>13028</td><td>12929</td><td>12902</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -1.7)</td>
+        <td>7n / 411s</td>
+        <td>96296 + 351ε</td>
+        <td>33.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0061</td>
+        <td>0.0225</td>
+        <td>0.0118</td>
+        <td>0.0061</td>
+        <td>11032</td><td>11156</td><td>10921</td><td>11192</td><td>13658</td><td>13813</td><td>11336</td><td>13539</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.6)</td>
+        <td>15n / 876s</td>
+        <td>59411 + 430ε</td>
+        <td>32.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0097</td>
+        <td>0.0362</td>
+        <td>0.0184</td>
+        <td>0.0097</td>
+        <td>7200</td><td>9390</td><td>7066</td><td>7205</td><td>7095</td><td>7246</td><td>7465</td><td>7174</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.6)</td>
+        <td>9n / 551s</td>
+        <td>75135 + 359ε</td>
+        <td>34.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0077</td>
+        <td>0.0274</td>
+        <td>0.0149</td>
+        <td>0.0077</td>
+        <td>8717</td><td>8781</td><td>11128</td><td>8804</td><td>8767</td><td>8974</td><td>11535</td><td>8788</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.7)</td>
+        <td>11n / 651s</td>
+        <td>46391 + 430ε</td>
+        <td>28.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0123</td>
+        <td>0.0473</td>
+        <td>0.0253</td>
+        <td>0.0123</td>
+        <td>5980</td><td>5807</td><td>5747</td><td>5695</td><td>5833</td><td>5936</td><td>5966</td><td>5857</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.7)</td>
+        <td>8n / 447s</td>
+        <td>30192 + 461ε</td>
+        <td>27.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0184</td>
+        <td>0.0587</td>
+        <td>0.0298</td>
+        <td>0.0184</td>
+        <td>3865</td><td>3803</td><td>3772</td><td>3804</td><td>3807</td><td>3910</td><td>3876</td><td>3816</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 1.6)</td>
+        <td>9n / 552s</td>
+        <td>11858 + 465ε</td>
+        <td>25.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0419</td>
+        <td>0.1989</td>
+        <td>0.0817</td>
+        <td>0.0419</td>
+        <td>1533</td><td>1547</td><td>1512</td><td>1523</td><td>1528</td><td>1607</td><td>1547</td><td>1526</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 1.6)</td>
+        <td>6n / 383s</td>
+        <td>82056 + 466ε</td>
+        <td>29.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0071</td>
+        <td>0.0285</td>
+        <td>0.0153</td>
+        <td>0.0071</td>
+        <td>10436</td><td>10232</td><td>10185</td><td>10190</td><td>10331</td><td>10498</td><td>10367</td><td>10283</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 271 — maturity</strong> acc=0.750, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.5)</td>
+        <td>8n / 508s</td>
+        <td>116878 + 1085ε</td>
+        <td>39.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0050</td>
+        <td>0.0215</td>
+        <td>0.0104</td>
+        <td>0.0050</td>
+        <td>16045</td><td>14159</td><td>14272</td><td>14273</td><td>14015</td><td>16693</td><td>14169</td><td>14337</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.5)</td>
+        <td>5n / 302s</td>
+        <td>60913 + 1392ε</td>
+        <td>38.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0093</td>
+        <td>0.0291</td>
+        <td>0.0167</td>
+        <td>0.0093</td>
+        <td>7104</td><td>7125</td><td>9749</td><td>7277</td><td>7176</td><td>7157</td><td>9600</td><td>7117</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.3)</td>
+        <td>15n / 886s</td>
+        <td>93387 + 1296ε</td>
+        <td>40.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0062</td>
+        <td>0.0258</td>
+        <td>0.0128</td>
+        <td>0.0062</td>
+        <td>10893</td><td>12624</td><td>10891</td><td>12660</td><td>12625</td><td>10917</td><td>10872</td><td>13201</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.3)</td>
+        <td>7n / 508s</td>
+        <td>100177 + 1229ε</td>
+        <td>39.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0058</td>
+        <td>0.0215</td>
+        <td>0.0114</td>
+        <td>0.0058</td>
+        <td>12722</td><td>12561</td><td>12773</td><td>12854</td><td>12434</td><td>12665</td><td>12672</td><td>12725</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.9, -2.2)</td>
+        <td>8n / 470s</td>
+        <td>10609 + 3546ε</td>
+        <td>31.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0371</td>
+        <td>0.0933</td>
+        <td>0.0544</td>
+        <td>0.0371</td>
+        <td>1804</td><td>1723</td><td>1800</td><td>1783</td><td>1728</td><td>1752</td><td>1784</td><td>1781</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.2)</td>
+        <td>14n / 833s</td>
+        <td>19950 + 2851ε</td>
+        <td>34.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0242</td>
+        <td>0.0714</td>
+        <td>0.0458</td>
+        <td>0.0242</td>
+        <td>2867</td><td>2879</td><td>2897</td><td>2881</td><td>2839</td><td>2715</td><td>2838</td><td>2885</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.9, 2.4)</td>
+        <td>11n / 698s</td>
+        <td>41440 + 1872ε</td>
+        <td>35.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0132</td>
+        <td>0.0447</td>
+        <td>0.0238</td>
+        <td>0.0132</td>
+        <td>5435</td><td>5442</td><td>5356</td><td>5552</td><td>5208</td><td>5417</td><td>5515</td><td>5387</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.4)</td>
+        <td>9n / 536s</td>
+        <td>60666 + 1562ε</td>
+        <td>37.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0093</td>
+        <td>0.0310</td>
+        <td>0.0177</td>
+        <td>0.0093</td>
+        <td>7737</td><td>7831</td><td>7780</td><td>7836</td><td>7626</td><td>7799</td><td>7796</td><td>7823</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 271 — epsilon</strong> acc=0.700, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.5)</td>
+        <td>8n / 508s</td>
+        <td>119660 + 373ε</td>
+        <td>39.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0049</td>
+        <td>0.0190</td>
+        <td>0.0099</td>
+        <td>0.0049</td>
+        <td>16834</td><td>14399</td><td>14289</td><td>14318</td><td>14476</td><td>16830</td><td>14374</td><td>14513</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.5)</td>
+        <td>5n / 302s</td>
+        <td>59506 + 404ε</td>
+        <td>38.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0097</td>
+        <td>0.0362</td>
+        <td>0.0192</td>
+        <td>0.0097</td>
+        <td>7006</td><td>6923</td><td>9375</td><td>6756</td><td>6756</td><td>6967</td><td>9333</td><td>6794</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.3)</td>
+        <td>15n / 886s</td>
+        <td>94351 + 427ε</td>
+        <td>40.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0062</td>
+        <td>0.0218</td>
+        <td>0.0123</td>
+        <td>0.0062</td>
+        <td>10876</td><td>13004</td><td>10687</td><td>12805</td><td>13049</td><td>10692</td><td>10537</td><td>13128</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.3)</td>
+        <td>7n / 508s</td>
+        <td>107014 + 440ε</td>
+        <td>38.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0055</td>
+        <td>0.0207</td>
+        <td>0.0105</td>
+        <td>0.0055</td>
+        <td>13469</td><td>13373</td><td>13597</td><td>13400</td><td>13526</td><td>13391</td><td>13331</td><td>13367</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.9, -2.2)</td>
+        <td>8n / 470s</td>
+        <td>8221 + 488ε</td>
+        <td>35.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0560</td>
+        <td>0.1830</td>
+        <td>0.1329</td>
+        <td>0.0560</td>
+        <td>1120</td><td>1047</td><td>1099</td><td>1085</td><td>1149</td><td>1061</td><td>1080</td><td>1068</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.2)</td>
+        <td>14n / 833s</td>
+        <td>21101 + 454ε</td>
+        <td>35.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0255</td>
+        <td>0.1106</td>
+        <td>0.0499</td>
+        <td>0.0255</td>
+        <td>2667</td><td>2628</td><td>2651</td><td>2690</td><td>2698</td><td>2713</td><td>2719</td><td>2789</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.9, 2.4)</td>
+        <td>11n / 698s</td>
+        <td>39862 + 462ε</td>
+        <td>36.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0142</td>
+        <td>0.0534</td>
+        <td>0.0274</td>
+        <td>0.0142</td>
+        <td>5208</td><td>4984</td><td>5001</td><td>4880</td><td>5034</td><td>5091</td><td>5023</td><td>5103</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.4)</td>
+        <td>9n / 536s</td>
+        <td>59720 + 453ε</td>
+        <td>37.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0097</td>
+        <td>0.0330</td>
+        <td>0.0171</td>
+        <td>0.0097</td>
+        <td>7584</td><td>7501</td><td>7530</td><td>7403</td><td>7528</td><td>7540</td><td>7526</td><td>7561</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 314 — maturity</strong> acc=0.775, distinct=8</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-1.9, -2.4)</td>
+        <td>9n / 527s</td>
+        <td>115240 + 1099ε</td>
+        <td>36.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0051</td>
+        <td>0.0203</td>
+        <td>0.0099</td>
+        <td>0.0051</td>
+        <td>15782</td><td>13685</td><td>13593</td><td>13690</td><td>16207</td><td>13457</td><td>13717</td><td>16208</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.7, -2.4)</td>
+        <td>9n / 566s</td>
+        <td>67098 + 1450ε</td>
+        <td>35.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0312</td>
+        <td>0.0166</td>
+        <td>0.0085</td>
+        <td>7841</td><td>7936</td><td>7915</td><td>10432</td><td>8051</td><td>8017</td><td>7877</td><td>10479</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-1.9, 2.5)</td>
+        <td>11n / 632s</td>
+        <td>83338 + 1441ε</td>
+        <td>40.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0069</td>
+        <td>0.0267</td>
+        <td>0.0135</td>
+        <td>0.0069</td>
+        <td>10330</td><td>10362</td><td>12289</td><td>10392</td><td>10387</td><td>10338</td><td>10392</td><td>10289</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.7, 2.5)</td>
+        <td>10n / 576s</td>
+        <td>63968 + 1650ε</td>
+        <td>41.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0089</td>
+        <td>0.0308</td>
+        <td>0.0179</td>
+        <td>0.0089</td>
+        <td>7468</td><td>9382</td><td>7468</td><td>7560</td><td>7413</td><td>9450</td><td>9523</td><td>7354</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.6)</td>
+        <td>7n / 404s</td>
+        <td>31059 + 2718ε</td>
+        <td>31.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0168</td>
+        <td>0.0601</td>
+        <td>0.0328</td>
+        <td>0.0168</td>
+        <td>4299</td><td>4180</td><td>4217</td><td>4198</td><td>4378</td><td>4167</td><td>4191</td><td>4147</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.3, -2.6)</td>
+        <td>8n / 533s</td>
+        <td>67681 + 1568ε</td>
+        <td>33.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0084</td>
+        <td>0.0308</td>
+        <td>0.0154</td>
+        <td>0.0084</td>
+        <td>8634</td><td>8715</td><td>8737</td><td>8711</td><td>8559</td><td>8576</td><td>8648</td><td>8669</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.2)</td>
+        <td>15n / 858s</td>
+        <td>35360 + 2126ε</td>
+        <td>30.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0152</td>
+        <td>0.0439</td>
+        <td>0.0273</td>
+        <td>0.0152</td>
+        <td>4751</td><td>4560</td><td>4695</td><td>4669</td><td>4725</td><td>4604</td><td>4685</td><td>4797</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.3, 2.2)</td>
+        <td>10n / 595s</td>
+        <td>40037 + 1921ε</td>
+        <td>33.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0136</td>
+        <td>0.0464</td>
+        <td>0.0273</td>
+        <td>0.0136</td>
+        <td>5214</td><td>5186</td><td>5355</td><td>5267</td><td>5254</td><td>5225</td><td>5299</td><td>5158</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 314 — epsilon</strong> acc=0.775, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-1.9, -2.4)</td>
+        <td>9n / 527s</td>
+        <td>120144 + 411ε</td>
+        <td>35.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0049</td>
+        <td>0.0190</td>
+        <td>0.0097</td>
+        <td>0.0049</td>
+        <td>16515</td><td>14008</td><td>14205</td><td>14293</td><td>16492</td><td>14281</td><td>14124</td><td>16637</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.7, -2.4)</td>
+        <td>9n / 566s</td>
+        <td>70165 + 406ε</td>
+        <td>34.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0083</td>
+        <td>0.0314</td>
+        <td>0.0160</td>
+        <td>0.0083</td>
+        <td>8240</td><td>8083</td><td>8316</td><td>10705</td><td>8141</td><td>8229</td><td>8204</td><td>10653</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-1.9, 2.5)</td>
+        <td>11n / 632s</td>
+        <td>87074 + 480ε</td>
+        <td>40.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0067</td>
+        <td>0.0252</td>
+        <td>0.0130</td>
+        <td>0.0067</td>
+        <td>10723</td><td>10733</td><td>12951</td><td>10676</td><td>10582</td><td>10573</td><td>10693</td><td>10623</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.7, 2.5)</td>
+        <td>10n / 576s</td>
+        <td>67053 + 442ε</td>
+        <td>41.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0086</td>
+        <td>0.0323</td>
+        <td>0.0167</td>
+        <td>0.0086</td>
+        <td>7482</td><td>9844</td><td>7641</td><td>7604</td><td>7542</td><td>9825</td><td>9899</td><td>7658</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.6)</td>
+        <td>7n / 404s</td>
+        <td>25749 + 493ε</td>
+        <td>32.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0212</td>
+        <td>0.0697</td>
+        <td>0.0378</td>
+        <td>0.0212</td>
+        <td>3297</td><td>3197</td><td>3249</td><td>3335</td><td>3272</td><td>3334</td><td>3315</td><td>3243</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.3, -2.6)</td>
+        <td>8n / 533s</td>
+        <td>68516 + 481ε</td>
+        <td>34.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0336</td>
+        <td>0.0171</td>
+        <td>0.0085</td>
+        <td>8557</td><td>8622</td><td>8739</td><td>8649</td><td>8540</td><td>8655</td><td>8528</td><td>8707</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.2)</td>
+        <td>15n / 858s</td>
+        <td>30705 + 494ε</td>
+        <td>31.5%</td>
+        <td style="color:#080;font-weight:bold">0.130</td>
+        <td style="font-weight:bold">0.0181</td>
+        <td>0.0708</td>
+        <td>0.0395</td>
+        <td>0.0181</td>
+        <td>4020</td><td>3769</td><td>3859</td><td>3878</td><td>3868</td><td>3954</td><td>3997</td><td>3854</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.3, 2.2)</td>
+        <td>10n / 595s</td>
+        <td>38455 + 444ε</td>
+        <td>35.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0147</td>
+        <td>0.0457</td>
+        <td>0.0264</td>
+        <td>0.0147</td>
+        <td>4960</td><td>4826</td><td>4791</td><td>4869</td><td>4884</td><td>4874</td><td>4917</td><td>4778</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 500 — maturity</strong> acc=0.700, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.5)</td>
+        <td>9n / 510s</td>
+        <td>112183 + 1122ε</td>
+        <td>40.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0052</td>
+        <td>0.0204</td>
+        <td>0.0105</td>
+        <td>0.0052</td>
+        <td>15092</td><td>13113</td><td>14845</td><td>13020</td><td>15417</td><td>13187</td><td>13202</td><td>15429</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.5)</td>
+        <td>9n / 560s</td>
+        <td>115032 + 1012ε</td>
+        <td>40.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0051</td>
+        <td>0.0188</td>
+        <td>0.0098</td>
+        <td>0.0051</td>
+        <td>13950</td><td>16447</td><td>13965</td><td>13766</td><td>13812</td><td>14023</td><td>16358</td><td>13723</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.4)</td>
+        <td>9n / 561s</td>
+        <td>51346 + 1931ε</td>
+        <td>38.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0109</td>
+        <td>0.0390</td>
+        <td>0.0205</td>
+        <td>0.0109</td>
+        <td>6701</td><td>6777</td><td>6672</td><td>6598</td><td>6624</td><td>6642</td><td>6748</td><td>6515</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.4)</td>
+        <td>10n / 579s</td>
+        <td>77550 + 1591ε</td>
+        <td>41.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0074</td>
+        <td>0.0274</td>
+        <td>0.0155</td>
+        <td>0.0074</td>
+        <td>9443</td><td>9462</td><td>9383</td><td>11034</td><td>9470</td><td>11406</td><td>9390</td><td>9553</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.4, -2.4)</td>
+        <td>4n / 257s</td>
+        <td>38354 + 2269ε</td>
+        <td>38.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0141</td>
+        <td>0.0534</td>
+        <td>0.0259</td>
+        <td>0.0141</td>
+        <td>5126</td><td>5013</td><td>5100</td><td>5063</td><td>5037</td><td>5149</td><td>5157</td><td>4978</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.1, -2.4)</td>
+        <td>9n / 469s</td>
+        <td>11525 + 3588ε</td>
+        <td>30.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0351</td>
+        <td>0.0805</td>
+        <td>0.0567</td>
+        <td>0.0351</td>
+        <td>1926</td><td>1910</td><td>1858</td><td>1855</td><td>1849</td><td>1944</td><td>1851</td><td>1920</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.4, 2.4)</td>
+        <td>10n / 645s</td>
+        <td>63470 + 1565ε</td>
+        <td>38.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0090</td>
+        <td>0.0302</td>
+        <td>0.0166</td>
+        <td>0.0090</td>
+        <td>8112</td><td>8156</td><td>8158</td><td>8126</td><td>8093</td><td>8206</td><td>8141</td><td>8043</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.1, 2.4)</td>
+        <td>15n / 868s</td>
+        <td>29741 + 2545ε</td>
+        <td>36.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0175</td>
+        <td>0.0635</td>
+        <td>0.0327</td>
+        <td>0.0175</td>
+        <td>4010</td><td>4158</td><td>4059</td><td>3991</td><td>4023</td><td>4060</td><td>3993</td><td>3992</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 500 — epsilon</strong> acc=0.650, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.4, -2.5)</td>
+        <td>9n / 510s</td>
+        <td>117178 + 436ε</td>
+        <td>40.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0050</td>
+        <td>0.0189</td>
+        <td>0.0099</td>
+        <td>0.0050</td>
+        <td>15983</td><td>13288</td><td>15950</td><td>13571</td><td>15880</td><td>13521</td><td>13457</td><td>15964</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.5)</td>
+        <td>9n / 560s</td>
+        <td>111704 + 413ε</td>
+        <td>40.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0053</td>
+        <td>0.0203</td>
+        <td>0.0102</td>
+        <td>0.0053</td>
+        <td>13416</td><td>15777</td><td>13473</td><td>13435</td><td>13394</td><td>13347</td><td>15804</td><td>13471</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.4, 2.4)</td>
+        <td>9n / 561s</td>
+        <td>46349 + 421ε</td>
+        <td>38.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0123</td>
+        <td>0.0452</td>
+        <td>0.0254</td>
+        <td>0.0123</td>
+        <td>5996</td><td>5742</td><td>5892</td><td>5854</td><td>5825</td><td>5762</td><td>5821</td><td>5878</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.4)</td>
+        <td>10n / 579s</td>
+        <td>82348 + 442ε</td>
+        <td>41.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0071</td>
+        <td>0.0276</td>
+        <td>0.0141</td>
+        <td>0.0071</td>
+        <td>9695</td><td>9833</td><td>9717</td><td>12061</td><td>9767</td><td>12052</td><td>9847</td><td>9818</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.4, -2.4)</td>
+        <td>4n / 257s</td>
+        <td>39046 + 495ε</td>
+        <td>39.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0144</td>
+        <td>0.0525</td>
+        <td>0.0276</td>
+        <td>0.0144</td>
+        <td>5061</td><td>4879</td><td>5042</td><td>4894</td><td>4880</td><td>4976</td><td>5052</td><td>4757</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.1, -2.4)</td>
+        <td>9n / 469s</td>
+        <td>9585 + 506ε</td>
+        <td>34.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0496</td>
+        <td>0.1234</td>
+        <td>0.0739</td>
+        <td>0.0496</td>
+        <td>1273</td><td>1254</td><td>1252</td><td>1251</td><td>1268</td><td>1269</td><td>1291</td><td>1233</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.4, 2.4)</td>
+        <td>10n / 645s</td>
+        <td>67904 + 498ε</td>
+        <td>38.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0337</td>
+        <td>0.0164</td>
+        <td>0.0085</td>
+        <td>8600</td><td>8549</td><td>8651</td><td>8576</td><td>8590</td><td>8494</td><td>8535</td><td>8407</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.1, 2.4)</td>
+        <td>15n / 868s</td>
+        <td>31010 + 500ε</td>
+        <td>38.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0179</td>
+        <td>0.0558</td>
+        <td>0.0348</td>
+        <td>0.0179</td>
+        <td>3893</td><td>4004</td><td>3878</td><td>3944</td><td>3935</td><td>3992</td><td>3986</td><td>3878</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 618 — maturity</strong> acc=0.675, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -2.4)</td>
+        <td>7n / 386s</td>
+        <td>106572 + 1067ε</td>
+        <td>34.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0055</td>
+        <td>0.0212</td>
+        <td>0.0108</td>
+        <td>0.0055</td>
+        <td>13790</td><td>12064</td><td>14311</td><td>11985</td><td>14551</td><td>12143</td><td>14313</td><td>14482</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.4)</td>
+        <td>9n / 510s</td>
+        <td>133434 + 923ε</td>
+        <td>40.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0044</td>
+        <td>0.0171</td>
+        <td>0.0088</td>
+        <td>0.0044</td>
+        <td>15522</td><td>18155</td><td>15502</td><td>18049</td><td>15514</td><td>15766</td><td>17786</td><td>18063</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.4)</td>
+        <td>10n / 590s</td>
+        <td>52833 + 1843ε</td>
+        <td>39.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0106</td>
+        <td>0.0330</td>
+        <td>0.0191</td>
+        <td>0.0106</td>
+        <td>6511</td><td>6628</td><td>6611</td><td>6514</td><td>6632</td><td>8591</td><td>6577</td><td>6612</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.4)</td>
+        <td>8n / 502s</td>
+        <td>26730 + 2583ε</td>
+        <td>36.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0192</td>
+        <td>0.0625</td>
+        <td>0.0364</td>
+        <td>0.0192</td>
+        <td>3633</td><td>3681</td><td>3673</td><td>3628</td><td>3611</td><td>3718</td><td>3681</td><td>3688</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.3)</td>
+        <td>10n / 584s</td>
+        <td>36968 + 2255ε</td>
+        <td>34.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0146</td>
+        <td>0.0491</td>
+        <td>0.0272</td>
+        <td>0.0146</td>
+        <td>4945</td><td>5000</td><td>4766</td><td>4947</td><td>4810</td><td>4948</td><td>4877</td><td>4930</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.3)</td>
+        <td>5n / 336s</td>
+        <td>69098 + 1576ε</td>
+        <td>36.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0083</td>
+        <td>0.0321</td>
+        <td>0.0174</td>
+        <td>0.0083</td>
+        <td>8805</td><td>8873</td><td>8851</td><td>8926</td><td>8743</td><td>8989</td><td>8630</td><td>8857</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.5)</td>
+        <td>9n / 512s</td>
+        <td>39805 + 1989ε</td>
+        <td>36.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0137</td>
+        <td>0.0440</td>
+        <td>0.0249</td>
+        <td>0.0137</td>
+        <td>5123</td><td>5324</td><td>5144</td><td>5268</td><td>5229</td><td>5413</td><td>5144</td><td>5149</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.5)</td>
+        <td>10n / 610s</td>
+        <td>42429 + 1927ε</td>
+        <td>34.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0129</td>
+        <td>0.0477</td>
+        <td>0.0235</td>
+        <td>0.0129</td>
+        <td>5553</td><td>5511</td><td>5465</td><td>5651</td><td>5557</td><td>5524</td><td>5491</td><td>5604</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 618 — epsilon</strong> acc=0.625, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -2.4)</td>
+        <td>7n / 386s</td>
+        <td>112728 + 377ε</td>
+        <td>34.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0052</td>
+        <td>0.0202</td>
+        <td>0.0099</td>
+        <td>0.0052</td>
+        <td>15079</td><td>12824</td><td>14964</td><td>12586</td><td>14948</td><td>12574</td><td>15247</td><td>14883</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.4, -2.4)</td>
+        <td>9n / 510s</td>
+        <td>135698 + 348ε</td>
+        <td>40.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0043</td>
+        <td>0.0175</td>
+        <td>0.0087</td>
+        <td>0.0043</td>
+        <td>15897</td><td>18292</td><td>15819</td><td>18164</td><td>15604</td><td>15850</td><td>18328</td><td>18092</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.4)</td>
+        <td>10n / 590s</td>
+        <td>57391 + 505ε</td>
+        <td>39.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0100</td>
+        <td>0.0332</td>
+        <td>0.0184</td>
+        <td>0.0100</td>
+        <td>6922</td><td>7008</td><td>6927</td><td>6947</td><td>6890</td><td>9302</td><td>7007</td><td>6893</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.4, 2.4)</td>
+        <td>8n / 502s</td>
+        <td>26432 + 508ε</td>
+        <td>36.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0207</td>
+        <td>0.0782</td>
+        <td>0.0402</td>
+        <td>0.0207</td>
+        <td>3458</td><td>3384</td><td>3365</td><td>3260</td><td>3483</td><td>3394</td><td>3320</td><td>3276</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.3)</td>
+        <td>10n / 584s</td>
+        <td>36034 + 518ε</td>
+        <td>35.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0156</td>
+        <td>0.0590</td>
+        <td>0.0319</td>
+        <td>0.0156</td>
+        <td>4654</td><td>4667</td><td>4610</td><td>4552</td><td>4464</td><td>4629</td><td>4438</td><td>4538</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.3)</td>
+        <td>5n / 336s</td>
+        <td>64762 + 485ε</td>
+        <td>37.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0089</td>
+        <td>0.0333</td>
+        <td>0.0184</td>
+        <td>0.0089</td>
+        <td>8087</td><td>8122</td><td>8144</td><td>8240</td><td>8117</td><td>7987</td><td>8324</td><td>8226</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.5)</td>
+        <td>9n / 512s</td>
+        <td>36206 + 483ε</td>
+        <td>35.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0155</td>
+        <td>0.0571</td>
+        <td>0.0302</td>
+        <td>0.0155</td>
+        <td>4690</td><td>4636</td><td>4514</td><td>4568</td><td>4466</td><td>4648</td><td>4589</td><td>4578</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.5)</td>
+        <td>10n / 610s</td>
+        <td>37995 + 461ε</td>
+        <td>34.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0148</td>
+        <td>0.0497</td>
+        <td>0.0289</td>
+        <td>0.0148</td>
+        <td>4973</td><td>4681</td><td>4858</td><td>4832</td><td>4792</td><td>4682</td><td>4808</td><td>4830</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 777 — maturity</strong> acc=0.625, distinct=7</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.3)</td>
+        <td>8n / 435s</td>
+        <td>117821 + 1028ε</td>
+        <td>39.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0050</td>
+        <td>0.0184</td>
+        <td>0.0096</td>
+        <td>0.0050</td>
+        <td>15518</td><td>13949</td><td>13509</td><td>13457</td><td>16258</td><td>16132</td><td>13818</td><td>16208</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.3)</td>
+        <td>9n / 581s</td>
+        <td>87787 + 1238ε</td>
+        <td>41.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0066</td>
+        <td>0.0237</td>
+        <td>0.0127</td>
+        <td>0.0066</td>
+        <td>11246</td><td>11213</td><td>11115</td><td>10864</td><td>11069</td><td>11090</td><td>11221</td><td>11207</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>11n / 686s</td>
+        <td>78516 + 1603ε</td>
+        <td>37.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0073</td>
+        <td>0.0282</td>
+        <td>0.0146</td>
+        <td>0.0073</td>
+        <td>9656</td><td>11400</td><td>9511</td><td>9410</td><td>9579</td><td>9518</td><td>11386</td><td>9659</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>12n / 698s</td>
+        <td>90976 + 1270ε</td>
+        <td>39.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0064</td>
+        <td>0.0234</td>
+        <td>0.0125</td>
+        <td>0.0064</td>
+        <td>11324</td><td>11175</td><td>12776</td><td>12573</td><td>11050</td><td>11045</td><td>11091</td><td>11212</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.5)</td>
+        <td>11n / 677s</td>
+        <td>34172 + 2513ε</td>
+        <td>32.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0155</td>
+        <td>0.0654</td>
+        <td>0.0296</td>
+        <td>0.0155</td>
+        <td>4624</td><td>4596</td><td>4511</td><td>4541</td><td>4656</td><td>4639</td><td>4448</td><td>4670</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.5)</td>
+        <td>9n / 584s</td>
+        <td>67072 + 1511ε</td>
+        <td>36.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0302</td>
+        <td>0.0161</td>
+        <td>0.0085</td>
+        <td>8458</td><td>8710</td><td>8565</td><td>8421</td><td>8558</td><td>8569</td><td>8557</td><td>8745</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.5)</td>
+        <td>10n / 590s</td>
+        <td>18835 + 3120ε</td>
+        <td>30.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0250</td>
+        <td>0.0751</td>
+        <td>0.0503</td>
+        <td>0.0250</td>
+        <td>2703</td><td>2783</td><td>2706</td><td>2720</td><td>2746</td><td>2684</td><td>2836</td><td>2777</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.5)</td>
+        <td>10n / 544s</td>
+        <td>5433 + 4369ε</td>
+        <td>22.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0508</td>
+        <td>0.1178</td>
+        <td>0.0795</td>
+        <td>0.0508</td>
+        <td>1216</td><td>1237</td><td>1147</td><td>1252</td><td>1204</td><td>1235</td><td>1293</td><td>1218</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 777 — epsilon</strong> acc=0.625, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.3)</td>
+        <td>8n / 435s</td>
+        <td>130266 + 360ε</td>
+        <td>38.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0045</td>
+        <td>0.0168</td>
+        <td>0.0087</td>
+        <td>0.0045</td>
+        <td>17441</td><td>14949</td><td>15107</td><td>15228</td><td>17518</td><td>17498</td><td>15305</td><td>17580</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.3)</td>
+        <td>9n / 581s</td>
+        <td>85306 + 424ε</td>
+        <td>41.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0068</td>
+        <td>0.0280</td>
+        <td>0.0137</td>
+        <td>0.0068</td>
+        <td>10586</td><td>10597</td><td>10791</td><td>10648</td><td>10787</td><td>10645</td><td>10941</td><td>10735</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>11n / 686s</td>
+        <td>83839 + 466ε</td>
+        <td>37.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0070</td>
+        <td>0.0239</td>
+        <td>0.0135</td>
+        <td>0.0070</td>
+        <td>9972</td><td>12023</td><td>10033</td><td>9919</td><td>9996</td><td>9908</td><td>12439</td><td>10015</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>12n / 698s</td>
+        <td>87967 + 484ε</td>
+        <td>40.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0066</td>
+        <td>0.0240</td>
+        <td>0.0132</td>
+        <td>0.0066</td>
+        <td>10433</td><td>10298</td><td>12798</td><td>12944</td><td>10594</td><td>10491</td><td>10367</td><td>10526</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.7, -2.5)</td>
+        <td>11n / 677s</td>
+        <td>34473 + 455ε</td>
+        <td>34.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0162</td>
+        <td>0.0612</td>
+        <td>0.0338</td>
+        <td>0.0162</td>
+        <td>4419</td><td>4319</td><td>4307</td><td>4328</td><td>4338</td><td>4401</td><td>4393</td><td>4423</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.5)</td>
+        <td>9n / 584s</td>
+        <td>61460 + 462ε</td>
+        <td>36.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0094</td>
+        <td>0.0405</td>
+        <td>0.0188</td>
+        <td>0.0094</td>
+        <td>7744</td><td>7577</td><td>7748</td><td>7721</td><td>7862</td><td>7628</td><td>7792</td><td>7850</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.7, 2.5)</td>
+        <td>10n / 590s</td>
+        <td>16338 + 463ε</td>
+        <td>33.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0319</td>
+        <td>0.1126</td>
+        <td>0.0544</td>
+        <td>0.0319</td>
+        <td>2035</td><td>2076</td><td>2187</td><td>2125</td><td>2093</td><td>2053</td><td>2109</td><td>2123</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.5)</td>
+        <td>10n / 544s</td>
+        <td>6969 + 454ε</td>
+        <td>32.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0637</td>
+        <td>0.1519</td>
+        <td>0.0937</td>
+        <td>0.0637</td>
+        <td>882</td><td>887</td><td>985</td><td>965</td><td>944</td><td>900</td><td>940</td><td>920</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 888 — maturity</strong> acc=0.575, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -2.3)</td>
+        <td>9n / 519s</td>
+        <td>90890 + 1259ε</td>
+        <td>40.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0064</td>
+        <td>0.0256</td>
+        <td>0.0131</td>
+        <td>0.0064</td>
+        <td>12399</td><td>10241</td><td>12877</td><td>10451</td><td>10380</td><td>12384</td><td>12867</td><td>10550</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.3)</td>
+        <td>9n / 496s</td>
+        <td>93062 + 1021ε</td>
+        <td>39.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0062</td>
+        <td>0.0240</td>
+        <td>0.0122</td>
+        <td>0.0062</td>
+        <td>10331</td><td>12666</td><td>10384</td><td>12780</td><td>12634</td><td>10138</td><td>12502</td><td>12648</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.5)</td>
+        <td>8n / 530s</td>
+        <td>74570 + 1603ε</td>
+        <td>36.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0077</td>
+        <td>0.0270</td>
+        <td>0.0144</td>
+        <td>0.0077</td>
+        <td>9565</td><td>9412</td><td>9567</td><td>9590</td><td>9593</td><td>9348</td><td>9615</td><td>9483</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>8n / 546s</td>
+        <td>85410 + 1368ε</td>
+        <td>32.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0068</td>
+        <td>0.0248</td>
+        <td>0.0134</td>
+        <td>0.0068</td>
+        <td>10967</td><td>10868</td><td>10919</td><td>10935</td><td>10926</td><td>10708</td><td>10718</td><td>10737</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.0)</td>
+        <td>12n / 751s</td>
+        <td>67621 + 1570ε</td>
+        <td>28.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0084</td>
+        <td>0.0291</td>
+        <td>0.0154</td>
+        <td>0.0084</td>
+        <td>8743</td><td>8679</td><td>8642</td><td>8715</td><td>8614</td><td>8545</td><td>8669</td><td>8584</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.2, -2.0)</td>
+        <td>9n / 585s</td>
+        <td>48725 + 2071ε</td>
+        <td>28.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0114</td>
+        <td>0.0529</td>
+        <td>0.0241</td>
+        <td>0.0114</td>
+        <td>6349</td><td>6366</td><td>6415</td><td>6426</td><td>6291</td><td>6260</td><td>6330</td><td>6359</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 2.3)</td>
+        <td>12n / 703s</td>
+        <td>27628 + 2424ε</td>
+        <td>26.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0187</td>
+        <td>0.0527</td>
+        <td>0.0331</td>
+        <td>0.0187</td>
+        <td>3702</td><td>3722</td><td>3715</td><td>3808</td><td>3807</td><td>3717</td><td>3741</td><td>3840</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.2, 2.3)</td>
+        <td>9n / 534s</td>
+        <td>19334 + 2809ε</td>
+        <td>28.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0249</td>
+        <td>0.0645</td>
+        <td>0.0420</td>
+        <td>0.0249</td>
+        <td>2801</td><td>2801</td><td>2784</td><td>2805</td><td>2720</td><td>2715</td><td>2681</td><td>2836</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 888 — epsilon</strong> acc=0.575, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.5, -2.3)</td>
+        <td>9n / 519s</td>
+        <td>101003 + 363ε</td>
+        <td>40.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0058</td>
+        <td>0.0213</td>
+        <td>0.0114</td>
+        <td>0.0058</td>
+        <td>13810</td><td>11445</td><td>14011</td><td>11541</td><td>11381</td><td>13906</td><td>13917</td><td>11355</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.3)</td>
+        <td>9n / 496s</td>
+        <td>92146 + 297ε</td>
+        <td>38.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0064</td>
+        <td>0.0240</td>
+        <td>0.0124</td>
+        <td>0.0064</td>
+        <td>10289</td><td>12147</td><td>10210</td><td>12456</td><td>12432</td><td>9976</td><td>12467</td><td>12466</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.5, 2.5)</td>
+        <td>8n / 530s</td>
+        <td>75476 + 474ε</td>
+        <td>37.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0077</td>
+        <td>0.0255</td>
+        <td>0.0141</td>
+        <td>0.0077</td>
+        <td>9441</td><td>9461</td><td>9541</td><td>9583</td><td>9358</td><td>9482</td><td>9611</td><td>9473</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>8n / 546s</td>
+        <td>80919 + 442ε</td>
+        <td>33.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0072</td>
+        <td>0.0298</td>
+        <td>0.0142</td>
+        <td>0.0072</td>
+        <td>10058</td><td>10059</td><td>10402</td><td>10383</td><td>10059</td><td>10172</td><td>10257</td><td>9971</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.0)</td>
+        <td>12n / 751s</td>
+        <td>72080 + 506ε</td>
+        <td>30.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0080</td>
+        <td>0.0361</td>
+        <td>0.0174</td>
+        <td>0.0080</td>
+        <td>9055</td><td>9087</td><td>9241</td><td>9110</td><td>9088</td><td>8989</td><td>8834</td><td>9182</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.2, -2.0)</td>
+        <td>9n / 585s</td>
+        <td>43434 + 422ε</td>
+        <td>28.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0131</td>
+        <td>0.0433</td>
+        <td>0.0267</td>
+        <td>0.0131</td>
+        <td>5569</td><td>5358</td><td>5601</td><td>5481</td><td>5362</td><td>5648</td><td>5396</td><td>5441</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 2.3)</td>
+        <td>12n / 703s</td>
+        <td>30497 + 461ε</td>
+        <td>28.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0182</td>
+        <td>0.0574</td>
+        <td>0.0321</td>
+        <td>0.0182</td>
+        <td>3884</td><td>3741</td><td>3871</td><td>3886</td><td>3780</td><td>3951</td><td>3936</td><td>3909</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.2, 2.3)</td>
+        <td>9n / 534s</td>
+        <td>15694 + 490ε</td>
+        <td>28.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0330</td>
+        <td>0.1300</td>
+        <td>0.0576</td>
+        <td>0.0330</td>
+        <td>2061</td><td>1983</td><td>2009</td><td>2091</td><td>2022</td><td>1976</td><td>1982</td><td>2060</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 999 — maturity</strong> acc=0.625, distinct=4</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.4)</td>
+        <td>12n / 702s</td>
+        <td>127283 + 1162ε</td>
+        <td>34.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0046</td>
+        <td>0.0187</td>
+        <td>0.0092</td>
+        <td>0.0046</td>
+        <td>17376</td><td>15327</td><td>15269</td><td>17055</td><td>15328</td><td>15479</td><td>15278</td><td>17333</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.1, -2.4)</td>
+        <td>8n / 490s</td>
+        <td>69817 + 1476ε</td>
+        <td>27.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0082</td>
+        <td>0.0282</td>
+        <td>0.0154</td>
+        <td>0.0082</td>
+        <td>8059</td><td>8020</td><td>10381</td><td>7970</td><td>8009</td><td>10399</td><td>10376</td><td>8079</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>6n / 396s</td>
+        <td>74861 + 1580ε</td>
+        <td>33.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0076</td>
+        <td>0.0265</td>
+        <td>0.0150</td>
+        <td>0.0076</td>
+        <td>9786</td><td>9461</td><td>9506</td><td>9409</td><td>9597</td><td>9635</td><td>9549</td><td>9498</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.1, 2.5)</td>
+        <td>12n / 688s</td>
+        <td>72424 + 1611ε</td>
+        <td>35.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0079</td>
+        <td>0.0308</td>
+        <td>0.0154</td>
+        <td>0.0079</td>
+        <td>8958</td><td>10780</td><td>8679</td><td>8598</td><td>10671</td><td>8820</td><td>8738</td><td>8791</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.6, -2.2)</td>
+        <td>12n / 755s</td>
+        <td>35577 + 2508ε</td>
+        <td>27.5%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0150</td>
+        <td>0.0535</td>
+        <td>0.0267</td>
+        <td>0.0150</td>
+        <td>4726</td><td>4824</td><td>4746</td><td>4738</td><td>4705</td><td>4762</td><td>4841</td><td>4743</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.2)</td>
+        <td>8n / 514s</td>
+        <td>27563 + 2856ε</td>
+        <td>25.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0185</td>
+        <td>0.0691</td>
+        <td>0.0389</td>
+        <td>0.0185</td>
+        <td>3830</td><td>3777</td><td>3889</td><td>3747</td><td>3810</td><td>3837</td><td>3710</td><td>3819</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.6, 2.6)</td>
+        <td>7n / 427s</td>
+        <td>46436 + 1878ε</td>
+        <td>27.4%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0119</td>
+        <td>0.0403</td>
+        <td>0.0233</td>
+        <td>0.0119</td>
+        <td>6162</td><td>5993</td><td>5977</td><td>5982</td><td>5939</td><td>6123</td><td>6047</td><td>6091</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.6)</td>
+        <td>10n / 583s</td>
+        <td>45685 + 1878ε</td>
+        <td>31.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0121</td>
+        <td>0.0380</td>
+        <td>0.0214</td>
+        <td>0.0121</td>
+        <td>6078</td><td>5893</td><td>5959</td><td>5783</td><td>6025</td><td>6089</td><td>5895</td><td>5841</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 999 — epsilon</strong> acc=0.625, distinct=5</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.4)</td>
+        <td>12n / 702s</td>
+        <td>136922 + 443ε</td>
+        <td>34.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0043</td>
+        <td>0.0170</td>
+        <td>0.0085</td>
+        <td>0.0043</td>
+        <td>18636</td><td>16349</td><td>16132</td><td>18539</td><td>16477</td><td>16364</td><td>16203</td><td>18665</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.1, -2.4)</td>
+        <td>8n / 490s</td>
+        <td>68236 + 422ε</td>
+        <td>27.9%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0085</td>
+        <td>0.0344</td>
+        <td>0.0170</td>
+        <td>0.0085</td>
+        <td>7688</td><td>7807</td><td>10167</td><td>7599</td><td>7706</td><td>10064</td><td>10032</td><td>7595</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>6n / 396s</td>
+        <td>83687 + 486ε</td>
+        <td>33.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0070</td>
+        <td>0.0259</td>
+        <td>0.0148</td>
+        <td>0.0070</td>
+        <td>10531</td><td>10593</td><td>10537</td><td>10484</td><td>10638</td><td>10514</td><td>10528</td><td>10348</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.1, 2.5)</td>
+        <td>12n / 688s</td>
+        <td>66355 + 514ε</td>
+        <td>35.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0087</td>
+        <td>0.0327</td>
+        <td>0.0169</td>
+        <td>0.0087</td>
+        <td>7721</td><td>10285</td><td>7680</td><td>7752</td><td>10118</td><td>7785</td><td>7704</td><td>7824</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.6, -2.2)</td>
+        <td>12n / 755s</td>
+        <td>29609 + 491ε</td>
+        <td>28.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0187</td>
+        <td>0.0899</td>
+        <td>0.0379</td>
+        <td>0.0187</td>
+        <td>3793</td><td>3739</td><td>3782</td><td>3851</td><td>3769</td><td>3713</td><td>3766</td><td>3687</td>
+      </tr>
+<tr style="background:#e3f2fd">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.2)</td>
+        <td>8n / 514s</td>
+        <td>17247 + 530ε</td>
+        <td>27.5%</td>
+        <td>0.630</td>
+        <td style="font-weight:bold">0.0303</td>
+        <td>0.0693</td>
+        <td>0.0352</td>
+        <td>0.0303</td>
+        <td>2249</td><td>2244</td><td>2310</td><td>2212</td><td>2144</td><td>2136</td><td>2246</td><td>2236</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.6, 2.6)</td>
+        <td>7n / 427s</td>
+        <td>50912 + 491ε</td>
+        <td>28.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0112</td>
+        <td>0.0428</td>
+        <td>0.0233</td>
+        <td>0.0112</td>
+        <td>6494</td><td>6552</td><td>6371</td><td>6479</td><td>6303</td><td>6474</td><td>6363</td><td>6367</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.6)</td>
+        <td>10n / 583s</td>
+        <td>49388 + 506ε</td>
+        <td>31.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0116</td>
+        <td>0.0372</td>
+        <td>0.0227</td>
+        <td>0.0116</td>
+        <td>6142</td><td>6241</td><td>6272</td><td>6168</td><td>6160</td><td>6312</td><td>6181</td><td>6418</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 1234 — maturity</strong> acc=0.650, distinct=6</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.5)</td>
+        <td>10n / 604s</td>
+        <td>100054 + 1329ε</td>
+        <td>28.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0058</td>
+        <td>0.0229</td>
+        <td>0.0118</td>
+        <td>0.0058</td>
+        <td>14414</td><td>12206</td><td>12440</td><td>12507</td><td>12655</td><td>12406</td><td>12427</td><td>12328</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.5)</td>
+        <td>11n / 626s</td>
+        <td>49137 + 1971ε</td>
+        <td>32.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0113</td>
+        <td>0.0398</td>
+        <td>0.0225</td>
+        <td>0.0113</td>
+        <td>5967</td><td>5872</td><td>5782</td><td>7947</td><td>5877</td><td>7914</td><td>5880</td><td>5869</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>7n / 402s</td>
+        <td>97600 + 1174ε</td>
+        <td>40.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0060</td>
+        <td>0.0217</td>
+        <td>0.0116</td>
+        <td>0.0060</td>
+        <td>11236</td><td>11120</td><td>13616</td><td>11171</td><td>13568</td><td>11142</td><td>13421</td><td>13500</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>9n / 534s</td>
+        <td>73476 + 1331ε</td>
+        <td>39.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0078</td>
+        <td>0.0281</td>
+        <td>0.0144</td>
+        <td>0.0078</td>
+        <td>8778</td><td>11105</td><td>8748</td><td>8854</td><td>8889</td><td>8720</td><td>11119</td><td>8594</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.5)</td>
+        <td>14n / 832s</td>
+        <td>55764 + 1901ε</td>
+        <td>29.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0101</td>
+        <td>0.0368</td>
+        <td>0.0181</td>
+        <td>0.0101</td>
+        <td>7262</td><td>7221</td><td>7248</td><td>7259</td><td>7202</td><td>7162</td><td>7049</td><td>7262</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.5)</td>
+        <td>4n / 205s</td>
+        <td>37647 + 2266ε</td>
+        <td>30.7%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0143</td>
+        <td>0.0474</td>
+        <td>0.0278</td>
+        <td>0.0143</td>
+        <td>5040</td><td>4899</td><td>5032</td><td>4869</td><td>5049</td><td>4986</td><td>4997</td><td>5041</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 2.2)</td>
+        <td>9n / 596s</td>
+        <td>65496 + 1717ε</td>
+        <td>29.7%</td>
+        <td style="color:#080;font-weight:bold">0.110</td>
+        <td style="font-weight:bold">0.0087</td>
+        <td>0.0321</td>
+        <td>0.0165</td>
+        <td>0.0087</td>
+        <td>8348</td><td>8467</td><td>8398</td><td>8462</td><td>8332</td><td>8383</td><td>8367</td><td>8456</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.2)</td>
+        <td>11n / 648s</td>
+        <td>25071 + 2659ε</td>
+        <td>29.2%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0202</td>
+        <td>0.0673</td>
+        <td>0.0400</td>
+        <td>0.0202</td>
+        <td>3463</td><td>3439</td><td>3563</td><td>3451</td><td>3468</td><td>3437</td><td>3473</td><td>3436</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+<details>
+      <summary><strong>Seed 1234 — epsilon</strong> acc=0.675, distinct=7</summary>
+      <table>
+        <tr><th>ID</th><th>Cl</th><th>Pos</th><th>Territory</th><th>Act (reg+ε)</th><th>Success%</th><th>Thresh</th><th>ExplRate</th><th>Rate 5k</th><th>Rate 10k</th><th>Rate 20k</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th><th>P8</th></tr>
+        <tr>
+        <td>0</td>
+        <td>C0</td>
+        <td>(-2.3, -2.5)</td>
+        <td>10n / 604s</td>
+        <td>92513 + 521ε</td>
+        <td>27.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0063</td>
+        <td>0.0253</td>
+        <td>0.0121</td>
+        <td>0.0063</td>
+        <td>13648</td><td>11221</td><td>11329</td><td>11351</td><td>11498</td><td>11287</td><td>11202</td><td>11498</td>
+      </tr>
+<tr>
+        <td>1</td>
+        <td>C0</td>
+        <td>(2.5, -2.5)</td>
+        <td>11n / 626s</td>
+        <td>57178 + 473ε</td>
+        <td>33.6%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0101</td>
+        <td>0.0336</td>
+        <td>0.0192</td>
+        <td>0.0101</td>
+        <td>6693</td><td>6633</td><td>6508</td><td>9180</td><td>6536</td><td>9037</td><td>6529</td><td>6535</td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>C0</td>
+        <td>(-2.3, 2.5)</td>
+        <td>7n / 402s</td>
+        <td>103937 + 350ε</td>
+        <td>40.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0056</td>
+        <td>0.0215</td>
+        <td>0.0114</td>
+        <td>0.0056</td>
+        <td>11945</td><td>11746</td><td>14319</td><td>11970</td><td>14335</td><td>11712</td><td>14161</td><td>14099</td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>C0</td>
+        <td>(2.5, 2.5)</td>
+        <td>9n / 534s</td>
+        <td>72429 + 401ε</td>
+        <td>39.8%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0080</td>
+        <td>0.0281</td>
+        <td>0.0151</td>
+        <td>0.0080</td>
+        <td>8564</td><td>10937</td><td>8393</td><td>8587</td><td>8366</td><td>8478</td><td>10924</td><td>8581</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>4</td>
+        <td>C1</td>
+        <td>(12.5, -2.5)</td>
+        <td>14n / 832s</td>
+        <td>49670 + 478ε</td>
+        <td>29.0%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0115</td>
+        <td>0.0449</td>
+        <td>0.0229</td>
+        <td>0.0115</td>
+        <td>6359</td><td>6254</td><td>6209</td><td>6424</td><td>6279</td><td>6212</td><td>6248</td><td>6163</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>5</td>
+        <td>C1</td>
+        <td>(17.5, -2.5)</td>
+        <td>4n / 205s</td>
+        <td>38949 + 497ε</td>
+        <td>31.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0145</td>
+        <td>0.0466</td>
+        <td>0.0285</td>
+        <td>0.0145</td>
+        <td>4984</td><td>4952</td><td>4901</td><td>4963</td><td>4922</td><td>4906</td><td>4851</td><td>4967</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>6</td>
+        <td>C1</td>
+        <td>(12.5, 2.2)</td>
+        <td>9n / 596s</td>
+        <td>64439 + 469ε</td>
+        <td>29.3%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0090</td>
+        <td>0.0368</td>
+        <td>0.0177</td>
+        <td>0.0090</td>
+        <td>8183</td><td>8054</td><td>8082</td><td>8256</td><td>8172</td><td>8044</td><td>8026</td><td>8091</td>
+      </tr>
+<tr style="background:#c8e6c9">
+        <td>7</td>
+        <td>C1</td>
+        <td>(17.5, 2.2)</td>
+        <td>11n / 648s</td>
+        <td>28021 + 467ε</td>
+        <td>30.1%</td>
+        <td style="color:#080;font-weight:bold">0.100</td>
+        <td style="font-weight:bold">0.0197</td>
+        <td>0.0839</td>
+        <td>0.0390</td>
+        <td>0.0197</td>
+        <td>3582</td><td>3655</td><td>3527</td><td>3543</td><td>3531</td><td>3533</td><td>3500</td><td>3617</td>
+      </tr>
+      </table>
+      <p style="font-size:0.82em;color:#666">
+        Blue rows = cluster 1. Green rows = cluster 1 with threshold dropped below 0.5.
+        ExplRate = final exploration rate (maturity condition only).
+      </p>
+    </details>
+
+<h2>Inference Detail</h2>
+<details>
+      <summary><strong>Seed 42</strong> — maturity=0.675, epsilon=0.650, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00000] 0.60</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[00001] 0.60</td>
+        <td>[00001] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00010] 0.80</td>
+        <td>[00110] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10010] 0.80</td>
+        <td>[10010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00001] 0.80</td>
+        <td>[01000] 0.40</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10010] 0.80</td>
+        <td>[00010] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 137</strong> — maturity=0.725, epsilon=0.725, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00010] 0.80</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[00001] 0.60</td>
+        <td>[00001] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00100] 0.80</td>
+        <td>[00100] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10011] 1.00</td>
+        <td>[10010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01100] 1.00</td>
+        <td>[01100] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00011] 0.60</td>
+        <td>[01001] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10011] 0.60</td>
+        <td>[10010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 271</strong> — maturity=0.750, epsilon=0.700, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00010] 0.80</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[10001] 0.80</td>
+        <td>[11001] 1.00</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00010] 0.80</td>
+        <td>[11010] 0.40</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10001] 0.80</td>
+        <td>[10001] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01000] 0.80</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00001] 0.80</td>
+        <td>[01001] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10010] 0.80</td>
+        <td>[11010] 1.00</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 314</strong> — maturity=0.775, epsilon=0.775, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00100] 0.40</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[10001] 0.80</td>
+        <td>[10001] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00110] 1.00</td>
+        <td>[00110] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10011] 1.00</td>
+        <td>[10011] 1.00</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01100] 1.00</td>
+        <td>[01100] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[10101] 0.80</td>
+        <td>[10001] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10010] 0.80</td>
+        <td>[10010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 500</strong> — maturity=0.700, epsilon=0.650, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00000] 0.60</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[00001] 0.60</td>
+        <td>[10001] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00110] 1.00</td>
+        <td>[00010] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[00011] 0.80</td>
+        <td>[00010] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01100] 1.00</td>
+        <td>[00100] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00001] 0.80</td>
+        <td>[11001] 0.40</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[00110] 0.40</td>
+        <td>[00010] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 618</strong> — maturity=0.675, epsilon=0.625, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[01010] 1.00</td>
+        <td>[00011] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[01001] 0.80</td>
+        <td>[00001] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[00010] 0.60</td>
+        <td>[01010] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01000] 0.80</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[01001] 0.60</td>
+        <td>[00001] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[00010] 0.60</td>
+        <td>[01010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 777</strong> — maturity=0.625, epsilon=0.625, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00010] 0.80</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[10000] 0.60</td>
+        <td>[10000] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00110] 1.00</td>
+        <td>[00110] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[01001] 0.40</td>
+        <td>[00001] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[00100] 0.80</td>
+        <td>[00100] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00010] 0.40</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[01110] 0.60</td>
+        <td>[00110] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 888</strong> — maturity=0.575, epsilon=0.575, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00010] 0.80</td>
+        <td>[01110] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[11000] 0.80</td>
+        <td>[00100] 0.20</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[10000] 0.40</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10000] 0.60</td>
+        <td>[10000] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[00100] 0.80</td>
+        <td>[00100] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[01010] 0.20</td>
+        <td>[00110] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10000] 0.60</td>
+        <td>[10000] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 999</strong> — maturity=0.625, epsilon=0.625, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[00111] 0.40</td>
+        <td>[01010] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00010] 0.80</td>
+        <td>[00110] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[10010] 0.80</td>
+        <td>[10010] 0.80</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[00111] 0.80</td>
+        <td>[01010] 0.20</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[10010] 0.80</td>
+        <td>[10110] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+<details>
+      <summary><strong>Seed 1234</strong> — maturity=0.650, epsilon=0.675, control=0.500</summary>
+      <table>
+        <tr><th>Pat</th><th>Input</th><th>Target</th><th>Maturity out/acc</th><th>Epsilon out/acc</th><th>Control out/acc</th></tr>
+        <tr>
+        <td>P1</td>
+        <td>[00000]</td>
+        <td>[10101]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P2</td>
+        <td>[10000]</td>
+        <td>[01010]</td>
+        <td>[01000] 0.80</td>
+        <td>[01000] 0.80</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P3</td>
+        <td>[01000]</td>
+        <td>[11001]</td>
+        <td>[00001] 0.60</td>
+        <td>[00001] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P4</td>
+        <td>[00100]</td>
+        <td>[00110]</td>
+        <td>[00010] 0.80</td>
+        <td>[00110] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P5</td>
+        <td>[00010]</td>
+        <td>[10011]</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+        <td>[00000] 0.40</td>
+      </tr>
+<tr>
+        <td>P6</td>
+        <td>[00001]</td>
+        <td>[01100]</td>
+        <td>[01100] 1.00</td>
+        <td>[01100] 1.00</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P7</td>
+        <td>[11000]</td>
+        <td>[00101]</td>
+        <td>[01001] 0.60</td>
+        <td>[01001] 0.60</td>
+        <td>[00000] 0.60</td>
+      </tr>
+<tr>
+        <td>P8</td>
+        <td>[00110]</td>
+        <td>[11010]</td>
+        <td>[00010] 0.60</td>
+        <td>[00010] 0.60</td>
+        <td>[00000] 0.40</td>
+      </tr>
+      </table>
+    </details>
+
+<h2>Conclusion</h2>
+<div class="conclusion">Maturity-scaled exploration (0.677) outperformed flat epsilon (0.662) in mean inference accuracy (5/10 seeds). Per-astrocyte maturation successfully reduces late-training perturbation drift. Cluster 0 matured as expected: 40/40 astrocytes reached explorationRate < 0.03 by episode 20000 (final C0 mean rate: 0.0073). Converged weights are protected from further drift. Cluster 1 caught up and matured: 40/40 astrocytes reached explorationRate < 0.10 by episode 20000 (final C1 mean rate: 0.0167). The output-side territory learned and stabilised. Late-training degradation was detected: accuracy in the final quarter dropped below mid-training levels. Maturity-scaling may not have decayed fast enough to prevent drift. Overall: 3/4 success criteria passed.</div>
+
+</body>
+</html>

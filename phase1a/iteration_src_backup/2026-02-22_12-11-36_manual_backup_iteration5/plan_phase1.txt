@@ -1,0 +1,572 @@
+This is a plan on a NN feedback algoritm.
+Technology nodejs. mjs files. modules, and not classes.
+refdoc contains reference material.
+The name is mcfeedback, which stands for "Murray-Claude-Feedback algoritm" (I cooperated with Claude, to get the idea)
+
+In short.
+We want to test a neural network that, uses a more Hebbian architectore, and avoid a global backprop algoritm.
+But we still want to backpropagate signals. Just small and local ones. Feedback signals. Simple signals. 
+Not a weight adjustment plan.
+
+
+Below is our plan: 
+
+# mcfeedback — Phase 1 Implementation Plan
+## Murray-Claude Feedback Algorithm
+### Non-Temporal / Spatial-Only Version
+
+---
+
+## 1. WHAT IS THIS
+
+mcfeedback is a neural network learning algorithm that avoids global backpropagation.
+Instead of a central optimizer calculating exact weight adjustments for every synapse,
+learning happens through local signals only:
+
+- Each synapse flags itself when its connected neurons show correlated activity
+- A regional chemical reward/punishment signal broadcasts "good" or "bad"
+- Only flagged synapses adjust, and only when chemical is present
+- Several local dampening filters reduce noise in the flagging
+
+No synapse ever receives a gradient. No synapse knows about the global loss.
+No synapse knows what any non-connected part of the network is doing.
+
+The full theoretical architecture is in: `refdoc/neural_feedback_architecture_v2.md`
+
+This plan covers Phase 1: the non-temporal, spatial-only version. No spike timing,
+no refractory periods, no cycling, no continuous state. Just spatial structure,
+local flagging, chemical diffusion, and dampening filters.
+
+---
+
+## 2. TECHNOLOGY
+
+- Node.js
+- ES modules (.mjs files)
+- Functional modules, NOT classes
+- No external ML frameworks
+- No dependencies for core engine (optional: a simple visualization lib later)
+
+---
+
+## 3. PROJECT STRUCTURE
+
+```
+mcfeedback/
+├── refdoc/
+│   └── neural_feedback_architecture_v2.md
+├── src/
+│   ├── network.mjs          // Network creation and initialization
+│   ├── neuron.mjs            // Neuron position, state, and threshold logic
+│   ├── synapse.mjs           // Synapse creation, flagging, dampening, weight update
+│   ├── ambient.mjs           // Ambient field computation
+│   ├── chemical.mjs          // Chemical diffusion from modulatory neurons
+│   ├── engine.mjs            // The main processing loop (one step)
+│   ├── dampening.mjs         // All dampening functions
+│   ├── flagging.mjs          // Four-quadrant eligibility flagging
+│   └── utils.mjs             // Distance calculations, random helpers
+├── experiments/
+│   ├── experiment-001.mjs    // Two-cluster pattern association
+│   └── analysis.mjs          // Result comparison and reporting
+├── tests/
+│   ├── test-synapse.mjs      // Unit tests for synapse logic
+│   ├── test-flagging.mjs     // Unit tests for four-quadrant flagging
+│   ├── test-dampening.mjs    // Unit tests for all dampening functions
+│   ├── test-ambient.mjs      // Unit tests for ambient field
+│   ├── test-chemical.mjs     // Unit tests for chemical diffusion
+│   └── test-homeostatic.mjs  // Unit tests for threshold self-regulation
+└── package.json
+```
+
+---
+
+## 4. DATA STRUCTURES
+
+### 4.1 Neuron (Tier 1 — Static position, set once)
+
+```javascript
+// Created by neuron.mjs
+// Stored in a Map keyed by id
+{
+  id:          string,       // unique identifier
+  x:           number,       // spatial position
+  y:           number,       // spatial position
+  z:           number,       // spatial position
+  type:        string,       // 'input' | 'regular' | 'modulatory' | 'output'
+  clusterId:   string,       // which cluster this neuron belongs to (Phase 1: pre-assigned)
+  neighbourIds: string[]     // precomputed: neuron ids within spatial radius (for ambient field)
+}
+```
+
+### 4.2 Neuron State (Tier 2 — Lightweight, updated each step)
+
+```javascript
+// Stored in a Map keyed by neuron id
+// Separate from position because it changes every step
+{
+  output:        number,     // current activation: 0 or 1 (binary for Phase 1)
+  firedThisCycle: boolean,   // did it fire this cycle?
+  fireCount:     number,     // total fires in recent window
+  cycleCount:    number,     // total cycles observed (for computing fireRate)
+  fireRate:      number,     // running average: fireCount / cycleCount
+  threshold:     number,     // self-adjusting (homeostatic plasticity)
+  ambientField:  number      // computed each step: spatial activity sum
+}
+```
+
+### 4.3 Synapse (Tier 3 — Primary entity, all learning here)
+
+```javascript
+// Stored in a flat array — the main data structure of the whole system
+{
+  from:              string,  // source neuron id
+  to:                string,  // target neuron id
+  weight:            number,  // connection strength (initialized small random)
+  eligibilityTrace:  number,  // the flag: current flagging strength
+  activityHistory:   number,  // running average of participation (0 to 1)
+  chemicalLevel:     number   // current modulatory chemical concentration
+}
+```
+
+### 4.4 Network (top-level container)
+
+```javascript
+{
+  neurons:       Map,         // id → neuron position (Tier 1)
+  neuronState:   Map,         // id → neuron state (Tier 2)
+  synapses:      Array,       // flat array of all synapses (Tier 3)
+  config:        Object       // all tunable parameters (see section 6)
+}
+```
+
+---
+
+## 5. MODULE RESPONSIBILITIES
+
+### 5.1 neuron.mjs
+
+```
+createNeuron(id, x, y, z, type, clusterId) → neuron object (Tier 1)
+createNeuronState(neuronId, initialThreshold) → neuron state object (Tier 2)
+updateFireRate(state) → mutates state.fireRate based on fireCount/cycleCount
+regulateThreshold(state, config) → adjusts threshold toward target fire rate
+computeOutput(neuronId, accumulators, neuronState) → 0 or 1
+```
+
+### 5.2 synapse.mjs
+
+```
+createSynapse(fromId, toId, initialWeight) → synapse object (Tier 3)
+updateWeight(synapse, config) → applies: weight += trace × chemical × learningRate
+updateActivityHistory(synapse, config) → running average update
+decayChemical(synapse, config) → chemical *= chemicalDecayRate
+```
+
+### 5.3 flagging.mjs
+
+The four-quadrant eligibility flagging rule. Computes raw trace value from
+pre-synaptic and post-synaptic neuron states plus ambient field.
+
+```
+computeEligibility(preState, postState, config) → raw trace value
+
+Rules:
+  pre fires   + post fires   → positive trace (co-activation)
+  pre fires   + post silent  → negative trace (mismatch)
+  pre silent  + post fires   → negative trace (mismatch)
+  pre silent  + post silent  + high ambient → trace (active suppression / co-silence)
+  pre silent  + post silent  + low ambient  → zero (irrelevant)
+```
+
+### 5.4 dampening.mjs
+
+All dampening functions. Each takes local information only. Returns a multiplier
+between 0 and 1.
+
+```
+activityHistoryDampening(activityHistory) → multiplier
+  // Low history (rarely participates) → dampened
+  // High history (regular participant) → full strength
+
+informationDampening(fireRate) → multiplier
+  // Inverted U: 4 * fireRate * (1 - fireRate)
+  // Always-on or always-off → near zero
+  // Variable/selective → full strength
+
+ambientRelevanceDampening(ambientField, neuronOutput, config) → multiplier
+  // Silent + high field → relevant (active silence)
+  // Silent + low field → irrelevant
+  // Active + high field → relevant
+  // Active + low field → weak
+
+combinedDampening(synapse, postNeuronState, config) → product of all multipliers
+```
+
+### 5.5 ambient.mjs
+
+Computes the ambient field for each neuron based on spatial neighbours' activity.
+Uses precomputed neighbour lists (from initialization).
+
+```
+computeAmbientFields(neurons, neuronState, config) → updates ambientField in neuronState
+
+For each neuron:
+  ambientField = sum over neighbourIds of:
+    neuronState[neighbourId].output / distance(neuron, neighbour)
+```
+
+The neighbour list is precomputed at network creation time: all neurons within
+`config.ambientRadius` spatial distance.
+
+### 5.6 chemical.mjs
+
+Handles chemical diffusion from modulatory neurons.
+
+```
+diffuseChemical(network, rewardSignal, config)
+
+For each modulatory neuron that fired:
+  For each synapse within spatial radius of that modulatory neuron:
+    synapse.chemicalLevel += rewardSignal × falloff(distance)
+
+Where falloff decreases with spatial distance from the modulatory neuron.
+Chemical also decays each step (handled in synapse.mjs).
+```
+
+For Phase 1, the reward signal is externally provided (did the output match target?).
+In later phases, modulatory neurons compute their own reward from local inputs.
+
+### 5.7 engine.mjs
+
+The main processing loop. One call = one training step (one input pattern).
+
+```
+step(network, inputPattern, targetPattern) → { output, loss, metrics }
+
+The step:
+  1. Clamp input neurons to inputPattern values
+  2. Forward pass:
+     a. Reset accumulators
+     b. Loop all synapses: accumulator[s.to] += s.weight × output[s.from]
+     c. Loop all neurons: compute output, update fire stats, regulate threshold
+  3. Compute ambient field for all neurons
+  4. Loop all synapses — FLAGGING:
+     s.eligibilityTrace = computeEligibility(pre, post, config)
+  5. Loop all synapses — DAMPENING:
+     s.eligibilityTrace *= combinedDampening(s, postState, config)
+  6. Compute reward signal: compare output neurons to targetPattern
+  7. Diffuse chemical from modulatory neurons
+  8. Loop all synapses — WEIGHT UPDATE:
+     s.weight += s.eligibilityTrace × s.chemicalLevel × config.learningRate
+  9. Loop all synapses — BOOKKEEPING:
+     update activityHistory
+     decay chemical
+ 10. Return output, loss, and diagnostic metrics
+```
+
+### 5.8 network.mjs
+
+Network creation and initialization.
+
+```
+createNetwork(config) → network object
+
+Responsibilities:
+  - Create neuron positions for each cluster (spatial layout)
+  - Create neuron states with initial thresholds
+  - Create synapses (dense within clusters, sparse between)
+  - Precompute spatial neighbour lists for ambient field
+  - Assign modulatory neuron types
+  - Initialize synapse weights (small random values)
+```
+
+### 5.9 utils.mjs
+
+```
+distance3d(a, b) → euclidean distance
+randomInRange(min, max) → random float
+shuffleArray(arr) → shuffled copy
+generateId(prefix) → unique id string
+```
+
+---
+
+## 6. CONFIGURATION
+
+All tunable parameters in one config object:
+
+```javascript
+const config = {
+  // Network structure
+  clustersCount: 2,                   // number of pre-defined clusters
+  neuronsPerCluster: 30,              // neurons per cluster
+  modulatoryPerCluster: 2,            // modulatory neurons per cluster
+  intraClusterConnectionProb: 0.6,    // connection probability within cluster
+  interClusterConnectionProb: 0.1,    // connection probability between clusters
+  clusterSpacing: 10.0,               // spatial distance between cluster centers
+  neuronSpread: 2.0,                  // spatial spread of neurons within a cluster
+
+  // Neuron dynamics
+  initialThreshold: 0.5,              // starting threshold for all neurons
+  targetFireRate: 0.2,                // homeostatic target (what fraction should fire)
+  thresholdAdjustRate: 0.01,          // how fast threshold self-regulates
+  ambientRadius: 3.0,                 // spatial radius for ambient field computation
+  ambientFalloff: 'inverse',          // 'inverse' | 'inverseSquare' | 'linear'
+
+  // Synapse initialization
+  initialWeightRange: [-0.1, 0.1],    // random weight initialization range
+
+  // Flagging
+  coActivationStrength: 1.0,          // flag strength for co-activation
+  coSilenceStrength: 0.5,             // flag strength for co-silence near activity
+  mismatchStrength: -0.5,             // flag strength for mismatch
+  ambientThreshold: 0.3,              // ambient field level to distinguish active vs quiet area
+
+  // Dampening
+  activityHistoryDecay: 0.95,         // how fast activity history fades
+  activityHistoryMinimum: 0.1,        // below this, heavily dampened (coincidence filter)
+
+  // Chemical / Reward
+  chemicalDiffusionRadius: 5.0,       // how far chemical spreads from modulatory neuron
+  chemicalFalloff: 'inverse',         // 'inverse' | 'inverseSquare' | 'linear'
+  chemicalDecayRate: 0.5,             // chemical decays each step by this factor
+  positiveRewardStrength: 1.0,        // chemical strength for correct output
+  negativeRewardStrength: -1.0,       // chemical strength for incorrect output
+
+  // Learning
+  learningRate: 0.01,                 // global learning rate
+  maxWeightMagnitude: 2.0,            // weight clamp to prevent explosion
+
+  // Experiment
+  inputSize: 5,                       // number of input neurons
+  outputSize: 5,                      // number of output neurons
+  trainingEpisodes: 1000,             // how many input patterns to train on
+  reportInterval: 100                 // print metrics every N episodes
+}
+```
+
+---
+
+## 7. FIRST EXPERIMENT (experiment-001.mjs)
+
+### 7.1 Task: Pattern Association
+
+Two clusters. Cluster A receives input patterns. Cluster B should produce corresponding
+output patterns. Sparse connections between clusters carry the signal.
+
+Training data: 4 simple binary patterns:
+
+```
+Input (Cluster A)    →   Target Output (Cluster B)
+[1, 0, 1, 0, 1]     →   [0, 1, 0, 1, 0]    (inversion)
+[1, 1, 0, 0, 0]     →   [0, 0, 1, 1, 1]    (inversion)
+[1, 0, 0, 0, 1]     →   [0, 1, 1, 1, 0]    (inversion)
+[0, 1, 0, 1, 0]     →   [1, 0, 1, 0, 1]    (inversion)
+```
+
+Simple enough that success is measurable. Complex enough that random weights won't solve it.
+
+### 7.2 Reward Mechanism (Phase 1 — externally computed)
+
+After each forward pass:
+- Compare output neurons to target pattern
+- If output matches target: positive reward signal to modulatory neurons
+- If output doesn't match: negative reward signal
+- Partial credit: reward proportional to how many output bits are correct
+
+In later phases, modulatory neurons will compute reward internally. For Phase 1,
+the external comparison acts as the pre-wired Tier 1 "genetic" bootstrap.
+
+### 7.3 Four Comparison Conditions
+
+Run the same experiment four times with different features enabled:
+
+```
+Condition 1: BASELINE
+  - No ambient field (skip ambient computation)
+  - No dampening filters (all dampening multipliers = 1.0)
+  - Global reward (chemical level set uniformly on all synapses, not diffused)
+  - This is basically standard reward-modulated Hebbian learning
+
+Condition 2: AMBIENT ONLY
+  - Ambient field enabled
+  - No dampening filters
+  - Global reward
+  - Tests whether ambient field alone helps
+
+Condition 3: DAMPENING ONLY
+  - No ambient field
+  - All dampening filters enabled
+  - Global reward
+  - Tests whether dampening alone helps
+
+Condition 4: FULL MODEL
+  - Ambient field enabled
+  - All dampening filters enabled
+  - Local chemical diffusion (not global)
+  - Tests the complete spatial architecture
+```
+
+### 7.4 Metrics to Track
+
+Per episode:
+- Accuracy: fraction of output bits correct
+- Loss: sum of squared differences between output and target
+- Mean weight magnitude: are weights growing or shrinking?
+- Mean fire rate: are neurons at healthy activity levels?
+- Mean threshold: is homeostatic regulation working?
+- Active synapse fraction: how many synapses have non-trivial traces?
+
+Across experiment:
+- Episodes to convergence (if it converges)
+- Final accuracy
+- Stability (does it oscillate or settle?)
+
+### 7.5 Output
+
+Console output every `reportInterval` episodes:
+
+```
+Episode 100/1000 | Accuracy: 0.65 | Loss: 1.42 | MeanWeight: 0.08 | MeanFireRate: 0.23 | MeanThreshold: 0.52
+Episode 200/1000 | Accuracy: 0.80 | Loss: 0.87 | MeanWeight: 0.12 | MeanFireRate: 0.21 | MeanThreshold: 0.55
+...
+```
+
+Final comparison table:
+
+```
+Condition     | Final Accuracy | Episodes to 90% | Stable?
+--------------|----------------|------------------|--------
+Baseline      | ...            | ...              | ...
+Ambient only  | ...            | ...              | ...
+Dampening only| ...            | ...              | ...
+Full model    | ...            | ...              | ...
+```
+
+---
+
+## 8. TESTING STRATEGY
+
+Unit tests for each module. Run with `node --test`.
+
+### 8.1 test-flagging.mjs
+- Co-activation (both fire) → positive trace
+- Co-silence with high ambient → positive trace
+- Co-silence with low ambient → zero trace
+- Mismatch (one fires, one doesn't) → negative trace
+- Verify trace magnitudes match config strengths
+
+### 8.2 test-dampening.mjs
+- informationDampening(0.0) → near zero (never fires)
+- informationDampening(0.5) → 1.0 (peak)
+- informationDampening(1.0) → near zero (always fires)
+- activityHistoryDampening with low history → dampened
+- activityHistoryDampening with high history → full strength
+- combinedDampening multiplies all factors correctly
+
+### 8.3 test-homeostatic.mjs
+- Neuron with fireRate > target → threshold increases
+- Neuron with fireRate < target → threshold decreases
+- Threshold stays within sane bounds
+- After many steps, fireRate converges toward target
+
+### 8.4 test-ambient.mjs
+- Neuron with all-active neighbours → high ambient field
+- Neuron with all-silent neighbours → zero ambient field
+- Distant neighbours contribute less than close ones
+- Neuron outside ambient radius → no contribution
+
+### 8.5 test-chemical.mjs
+- Chemical diffuses from modulatory neuron position
+- Chemical strength decreases with distance
+- Chemical beyond diffusion radius → zero
+- Chemical decays each step
+- Positive and negative chemical signals work correctly
+
+### 8.6 test-synapse.mjs
+- Weight updates only when both trace and chemical are non-zero
+- Positive trace + positive chemical → weight increases
+- Positive trace + negative chemical → weight decreases
+- Weight clamps at maxWeightMagnitude
+- Activity history updates correctly
+
+---
+
+## 9. IMPLEMENTATION ORDER
+
+Build and test in this sequence:
+
+```
+Step 1: utils.mjs
+        Just distance, random, id generation.
+
+Step 2: neuron.mjs
+        Create neurons with positions and state.
+        Test: neurons exist, have positions, state initializes correctly.
+
+Step 3: synapse.mjs
+        Create synapses, basic weight update.
+        Test: synapses connect neurons, weights adjust.
+
+Step 4: network.mjs
+        Wire up two clusters. Dense internal, sparse cross.
+        Precompute neighbour lists.
+        Test: network has correct topology, neighbour lists are right.
+
+Step 5: flagging.mjs
+        Four-quadrant eligibility computation.
+        Test: all four quadrants produce correct trace values.
+
+Step 6: dampening.mjs
+        All three dampening functions.
+        Test: inverted-U works, activity history works, ambient relevance works.
+
+Step 7: ambient.mjs
+        Spatial ambient field computation.
+        Test: field values correct for known configurations.
+
+Step 8: chemical.mjs
+        Chemical diffusion from modulatory neurons.
+        Test: chemical spreads correctly, decays correctly.
+
+Step 9: engine.mjs
+        Wire everything into the step function.
+        Test: one step runs without error, output is produced.
+
+Step 10: experiment-001.mjs
+         Run the four comparison conditions.
+         Report results.
+```
+
+Each step should be fully tested before moving to the next.
+
+---
+
+## 10. KEY PRINCIPLES FOR IMPLEMENTATION
+
+1. **Synapses are primary.** All learning loops iterate over the flat synapse array.
+   Neurons are lookup tables that synapses read from.
+
+2. **Everything is local.** If any function accesses information that a biological
+   synapse couldn't access, it's a bug. A synapse knows: its own state, its pre-synaptic
+   neuron's output, its post-synaptic neuron's output and ambient field, and the local
+   chemical level. Nothing else.
+
+3. **No classes.** Pure functions that take data and return data (or mutate in place
+   for performance). Modules export functions, not constructors.
+
+4. **Config is king.** Every magic number is in the config. No hardcoded constants
+   in the engine. This enables systematic parameter sweeps.
+
+5. **Test first.** Each module gets unit tests before being wired into the engine.
+   The flagging and dampening functions especially need thorough testing — they are
+   the core novel contribution.
+
+6. **Measure everything.** The experiment should produce enough metrics to understand
+   not just IF it works but WHY or WHY NOT. Fire rates, weight distributions,
+   threshold trajectories, trace statistics.
+
+---
+
+*mcfeedback Phase 1 — February 2026*
+*Ready for implementation.*

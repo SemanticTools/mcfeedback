@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 7: Connectivity Diagnostic</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #161920; font-family: monospace; font-size: 0.81rem; }
+  td.label { font-family: inherit; font-size: 0.83rem; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .verdict.blue   { border-color: #1e2a3a; background: #111520; }
+  .verdict.purple { border-color: #2a1e3a; background: #130f1a; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .delta-pos { color: #76b7b2; }
+  .delta-neg { color: #e15759; }
+  .delta-nil { color: #555; }
+  @media (max-width: 780px) { .three-col, .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 7: Connectivity Diagnostic</h1>
+<div class="subtitle">
+  experiment-007.mjs &nbsp;·&nbsp;
+  No mechanism changes — structural analysis only &nbsp;·&nbsp;
+  N = 10 seeds &nbsp;·&nbsp;
+  Config: experiment-004 base (flag gate + linear reward)
+</div>
+
+<!-- Key finding -->
+<div class="verdict yellow">
+  <strong>Key finding: the failure mode is not structural.</strong><br>
+  No pre-training connectivity metric correlates meaningfully with final accuracy.
+  Direct I→O connections differ by only 1.4 on average between good and poor seeds (13.6 vs 12.2).
+  Chemical dose budget and modulatory distance to outputs are essentially identical across groups.
+  2-hop path counts are nearly the same (344 vs 349 — poor seeds are <em>marginally higher</em>).
+  The network graph is not the bottleneck. <strong>The 7-seed stall is a dynamical problem</strong> —
+  it emerges from early training trajectories, not from wiring.
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#76b7b2"></div>65% accuracy</div>
+  <div class="leg"><div class="dot" style="background:#f28e2b"></div>55% accuracy</div>
+  <div class="leg"><div class="dot" style="background:#e15759"></div>45% accuracy</div>
+</div>
+
+<h2>1 — Scatter: structural metrics vs final accuracy</h2>
+<div class="three-col">
+  <div class="card">
+    <strong style="font-size:0.82rem;color:#aaa">Direct I→O connections</strong>
+    <canvas id="scatterIO" height="220"></canvas>
+    <p class="meta">Max possible: 25. Range: 9–16. No separation between groups.</p>
+  </div>
+  <div class="card">
+    <strong style="font-size:0.82rem;color:#aaa">Chemical dose (output-bound synapses)</strong>
+    <canvas id="scatterDose" height="220"></canvas>
+    <p class="meta">Sum of 1/distance from all 4 mod neurons. Good seeds actually trend lower.</p>
+  </div>
+  <div class="card">
+    <strong style="font-size:0.82rem;color:#aaa">Mean modulatory distance to outputs</strong>
+    <canvas id="scatterModDist" height="220"></canvas>
+    <p class="meta">Closer mod neurons → stronger chemical signal. No clear pattern.</p>
+  </div>
+</div>
+
+<h2>2 — Full per-seed data</h2>
+<div class="card" style="padding:0; overflow-x:auto">
+<table>
+  <tr>
+    <th>Seed</th>
+    <th>Acc%</th>
+    <th>Direct I→O</th>
+    <th>2-hop paths</th>
+    <th>Input fan-out</th>
+    <th>Output fan-in</th>
+    <th>Chem dose</th>
+    <th>Mod dist→out</th>
+    <th>Total synapses</th>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">888</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td>
+    <td>15</td><td>314</td><td>29.8</td><td>31.0</td><td>1.000</td><td>6.18</td><td>1676</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">999</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td>
+    <td>11</td><td>323</td><td>28.0</td><td>30.2</td><td>0.877</td><td>6.05</td><td>1648</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">1234</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td>
+    <td>16</td><td>321</td><td>30.0</td><td>30.0</td><td>1.265</td><td>5.70</td><td>1667</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">618</td>
+    <td style="color:#f28e2b;font-weight:600">55%</td>
+    <td>13</td><td>419</td><td>31.8</td><td>34.2</td><td>1.339</td><td>5.21</td><td>1693</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">777</td>
+    <td style="color:#f28e2b;font-weight:600">55%</td>
+    <td>13</td><td>343</td><td>27.0</td><td>33.6</td><td>1.190</td><td>5.97</td><td>1718</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">42</td>
+    <td style="color:#e15759;font-weight:600">45%</td>
+    <td>13</td><td>334</td><td>27.4</td><td>32.4</td><td>1.072</td><td>5.67</td><td>1648</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">137</td>
+    <td style="color:#e15759;font-weight:600">45%</td>
+    <td>14</td><td>347</td><td>30.0</td><td>33.2</td><td>1.509</td><td>5.94</td><td>1658</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">271</td>
+    <td style="color:#e15759;font-weight:600">45%</td>
+    <td>14</td><td>365</td><td>31.0</td><td>31.4</td><td>1.270</td><td>6.42</td><td>1701</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">314</td>
+    <td style="color:#e15759;font-weight:600">45%</td>
+    <td>9</td><td>353</td><td>32.0</td><td>28.2</td><td>0.830</td><td>6.30</td><td>1681</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">500</td>
+    <td style="color:#e15759;font-weight:600">45%</td>
+    <td>11</td><td>347</td><td>29.4</td><td>30.6</td><td>1.139</td><td>6.27</td><td>1645</td>
+  </tr>
+</table>
+</div>
+
+<h2>3 — Group comparison: good seeds (≥55%) vs poor seeds (&lt;55%)</h2>
+<div class="two-col">
+  <div class="card" style="padding:0">
+  <table>
+    <tr><th>Metric</th><th>Good (≥55%, n=5)</th><th>Poor (&lt;55%, n=5)</th><th>Delta</th></tr>
+    <tr>
+      <td class="label">Direct I→O connections</td>
+      <td>13.60</td><td>12.20</td>
+      <td class="delta-pos">+1.40</td>
+    </tr>
+    <tr>
+      <td class="label">2-hop paths</td>
+      <td>344.00</td><td>349.20</td>
+      <td class="delta-neg">−5.20</td>
+    </tr>
+    <tr>
+      <td class="label">Input fan-out (mean)</td>
+      <td>29.32</td><td>29.96</td>
+      <td class="delta-nil">−0.64</td>
+    </tr>
+    <tr>
+      <td class="label">Output fan-in (mean)</td>
+      <td>31.80</td><td>31.16</td>
+      <td class="delta-nil">+0.64</td>
+    </tr>
+    <tr>
+      <td class="label">Chemical dose (output)</td>
+      <td>1.130</td><td>1.164</td>
+      <td class="delta-neg">−0.03</td>
+    </tr>
+    <tr>
+      <td class="label">Mod dist → output centroid</td>
+      <td>5.82</td><td>6.12</td>
+      <td class="delta-nil">−0.30</td>
+    </tr>
+  </table>
+  </div>
+
+  <div class="card">
+    <strong style="font-size:0.85rem; color:#aaa; display:block; margin-bottom:12px">2-hop paths vs Direct I→O (all seeds)</strong>
+    <canvas id="scatterTwoHop" height="200"></canvas>
+    <p class="meta">Neither axis separates good from poor. The clusters overlap completely.</p>
+  </div>
+</div>
+
+<div class="verdict purple" style="margin-top:8px">
+  <strong>What the null result rules out:</strong><br>
+  ✗ &nbsp;Insufficient direct input→output pathways<br>
+  ✗ &nbsp;Too few 2-hop paths through hidden neurons<br>
+  ✗ &nbsp;Weak chemical dose — poor seeds get equal or slightly more reward signal<br>
+  ✗ &nbsp;Bad modulatory neuron positioning<br>
+  ✗ &nbsp;Sparse fan-out or fan-in
+</div>
+
+<div class="verdict blue">
+  <strong>What this implies about the actual bottleneck:</strong><br>
+  The failure is in the <em>early training dynamics</em>. The flag gate requires ~2 turns of consistent
+  same-direction trace to unlock a synapse. Whether a synapse sees consistent traces depends on
+  which patterns fire together in the first 50–100 episodes — a function of threshold initialisation
+  and the specific input patterns presented, not the graph topology.<br><br>
+  <strong>Next diagnostic:</strong> log flag strength distributions at episodes 100, 300, and 500.
+  If good seeds show flags already latched (flagStrength ≥ 0.5) on output-bound synapses by episode 100
+  while poor seeds are still at ~0, the bottleneck is flag gate bootstrapping speed.
+  Fix: lower <code>flagStrengthThreshold</code> or raise <code>flagStrengthGain</code> so weak early
+  signals can still accumulate — or add a short warm-up phase with the gate disabled.
+</div>
+
+<script>
+const SEEDS   = [888,999,1234,618,777,42,137,271,314,500];
+const ACC     = [65,65,65,55,55,45,45,45,45,45];
+const DIRIO   = [15,11,16,13,13,13,14,14,9,11];
+const TWOHOP  = [314,323,321,419,343,334,347,365,353,347];
+const DOSE    = [1.000,0.877,1.265,1.339,1.190,1.072,1.509,1.270,0.830,1.139];
+const MODDIST = [6.18,6.05,5.70,5.21,5.97,5.67,5.94,6.42,6.30,6.27];
+
+function accColor(a) {
+  if (a >= 65) return '#76b7b2';
+  if (a >= 55) return '#f28e2b';
+  return '#e15759';
+}
+
+function makeScatter(canvasId, xData, xLabel, yRange) {
+  const data = SEEDS.map((s, i) => ({
+    x: xData[i], y: ACC[i], seed: s
+  }));
+  new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        data,
+        backgroundColor: ACC.map(a => accColor(a) + 'cc'),
+        borderColor:     ACC.map(a => accColor(a)),
+        borderWidth: 1,
+        pointRadius: 7,
+        pointHoverRadius: 9,
+      }]
+    },
+    options: {
+      animation: false, responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => ` Seed ${data[ctx.dataIndex].seed}: ${ctx.parsed.y}% acc, ${xLabel}=${ctx.parsed.x}`
+        }}
+      },
+      scales: {
+        x: {
+          title: { display: true, text: xLabel, color: '#555', font: { size: 10 } },
+          ticks: { color: '#555' },
+          grid: { color: '#1e2130' },
+          ...(xRange ? { min: xRange[0], max: xRange[1] } : {}),
+        },
+        y: {
+          min: 35, max: 75,
+          title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 10 } },
+          ticks: { color: '#555', callback: v => v + '%' },
+          grid: {
+            color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130',
+            lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1,
+          },
+        }
+      }
+    }
+  });
+}
+
+// xRange is unused — remove the broken reference
+function makeScatterClean(canvasId, xData, xLabel) {
+  const pts = SEEDS.map((s, i) => ({ x: xData[i], y: ACC[i], seed: s }));
+  new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        data: pts,
+        backgroundColor: ACC.map(a => accColor(a) + 'cc'),
+        borderColor:     ACC.map(a => accColor(a)),
+        borderWidth: 1, pointRadius: 7, pointHoverRadius: 9,
+      }]
+    },
+    options: {
+      animation: false, responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => ` Seed ${pts[ctx.dataIndex].seed}: ${ctx.parsed.y}% — ${xLabel}: ${ctx.parsed.x}`
+        }}
+      },
+      scales: {
+        x: {
+          title: { display: true, text: xLabel, color: '#555', font: { size: 10 } },
+          ticks: { color: '#555' },
+          grid: { color: '#1e2130' },
+        },
+        y: {
+          min: 35, max: 75,
+          title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 10 } },
+          ticks: { color: '#555', callback: v => v + '%' },
+          grid: {
+            color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130',
+            lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1,
+          },
+        }
+      }
+    }
+  });
+}
+
+makeScatterClean('scatterIO',     DIRIO,   'Direct I→O connections');
+makeScatterClean('scatterDose',   DOSE,    'Chemical dose (output synapses)');
+makeScatterClean('scatterModDist',MODDIST, 'Mean mod dist → output centroid');
+
+// 2-hop vs Direct I→O coloured by accuracy
+const twoHopPts = SEEDS.map((s, i) => ({ x: DIRIO[i], y: TWOHOP[i], seed: s, acc: ACC[i] }));
+new Chart(document.getElementById('scatterTwoHop').getContext('2d'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      data: twoHopPts,
+      backgroundColor: ACC.map(a => accColor(a) + 'cc'),
+      borderColor:     ACC.map(a => accColor(a)),
+      borderWidth: 1, pointRadius: 7, pointHoverRadius: 9,
+    }]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: {
+        label: ctx => ` Seed ${twoHopPts[ctx.dataIndex].seed}: ${twoHopPts[ctx.dataIndex].acc}% — I→O:${ctx.parsed.x} 2-hop:${ctx.parsed.y}`
+      }}
+    },
+    scales: {
+      x: {
+        title: { display: true, text: 'Direct I→O', color: '#555', font: { size: 10 } },
+        ticks: { color: '#555' }, grid: { color: '#1e2130' },
+      },
+      y: {
+        title: { display: true, text: '2-hop paths', color: '#555', font: { size: 10 } },
+        ticks: { color: '#555' }, grid: { color: '#1e2130' },
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

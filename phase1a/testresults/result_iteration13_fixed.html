@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 13 (fixed): 012b + propagationCycles=3</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0f13; color: #e0e0e0; max-width: 960px; margin: 0 auto; padding: 2rem; }
+  h1 { color: #7eb8f7; font-size: 1.4rem; border-bottom: 1px solid #2a2a3a; padding-bottom: 0.5rem; }
+  h2 { color: #a0c4ff; font-size: 1.1rem; margin-top: 2rem; }
+  h3 { color: #c0d8ff; font-size: 0.95rem; margin-top: 1.5rem; }
+  pre { background: #16161e; border: 1px solid #2a2a3a; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.88rem; }
+  th { background: #1e1e2e; color: #a0c4ff; padding: 0.5rem 0.8rem; text-align: left; border-bottom: 2px solid #3a3a5a; }
+  td { padding: 0.45rem 0.8rem; border-bottom: 1px solid #1e1e2e; }
+  tr:hover td { background: #1a1a28; }
+  .good { color: #6fcf97; }
+  .bad { color: #eb5757; }
+  .neutral { color: #b0b0c0; }
+  .highlight { color: #f6c90e; font-weight: bold; }
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.78rem; font-weight: bold; }
+  .tag-fixed { background: #1b4a2a; color: #6fcf97; }
+  .tag-worse { background: #4a1b1b; color: #eb5757; }
+  .tag-same { background: #2a2a1b; color: #f6c90e; }
+  .verdict { background: #1a1a28; border-left: 4px solid #7eb8f7; padding: 1rem 1.2rem; border-radius: 0 6px 6px 0; margin: 1.5rem 0; }
+  .verdict h3 { color: #7eb8f7; margin-top: 0; }
+  .fix-box { background: #0d2a1a; border: 1px solid #2a5a3a; border-radius: 6px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .fix-box h3 { color: #6fcf97; margin-top: 0; }
+  code { background: #16161e; border: 1px solid #2a2a3a; border-radius: 3px; padding: 0.1rem 0.3rem; font-size: 0.82rem; }
+  .comparison-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .cg-cell { background: #16161e; border: 1px solid #2a2a3a; border-radius: 6px; padding: 0.8rem; }
+  .cg-label { font-size: 0.75rem; color: #808098; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cg-value { font-size: 1.5rem; font-weight: bold; margin: 0.3rem 0 0; }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 13 (engine-fixed): 012b + propagationCycles=3</h1>
+
+<p>
+  <span class="tag tag-fixed">ENGINE FIX APPLIED</span>
+  &nbsp;Base: experiment-012b (exp-004 + weightDecay=0.0025). One addition: <code>propagationCycles: 3</code>.
+  10 seeds × 1000 episodes × 4 conditions.
+</p>
+
+<div class="fix-box">
+  <h3>Engine fix: what changed in src/engine.mjs</h3>
+  <p>The original implementation ran <code>computeOutput()</code> (which increments <code>cycleCount</code> / <code>fireCount</code> / <code>fireRate</code>) and <code>regulateThreshold()</code> inside the propagation loop.
+  With <code>propagationCycles=3</code> this meant homeostatic threshold regulation fired 3× per episode, shrinking thresholds 3× faster and collapsing all 10 seeds to 45%.</p>
+  <p>The fix moves stat updates and threshold regulation <strong>outside</strong> the loop so they run exactly once per episode regardless of <code>propagationCycles</code>.
+  Only weighted accumulation and the firing comparison (<code>output ≥ threshold</code>) repeat per cycle.</p>
+  <pre>// BEFORE (broken): computeOutput + regulateThreshold inside loop
+for (let _cycle = 0; _cycle &lt; nCycles; _cycle++) {
+  // ... accumulate ...
+  computeOutput(id, accumulators, neuronState);   // updates cycleCount, fireCount — runs N×
+  regulateThreshold(state, config);              // adjusts threshold — runs N×
+}
+
+// AFTER (fixed): fire only inside loop, stats + regulation once outside
+for (let _cycle = 0; _cycle &lt; nCycles; _cycle++) {
+  // ... accumulate ...
+  state.output         = input &gt;= state.threshold ? 1 : 0;  // fire
+  state.firedThisCycle = state.output === 1;
+}
+// run once:
+state.cycleCount++;
+if (state.firedThisCycle) state.fireCount++;
+state.fireRate = state.fireCount / state.cycleCount;
+regulateThreshold(state, config);</pre>
+</div>
+
+<h2>Config</h2>
+<pre>learningRate:          0.01    (exp-004 original)
+weightDecay:           0.0025  (012b fix — halved from 0.005)
+flagStrengthGain:      0.3     (exp-004 original)
+flagDecayRate:         0.7     (exp-004 original)
+flagStrengthThreshold: 0.5     (exp-004 original)
+propagationCycles:     3       ← the new addition
+reward:                linear  (no squaring, no annealing)
+
+No direction-consistent flags, no frustration flip, no reward shaping.</pre>
+
+<h2>Results: Before vs After fix</h2>
+
+<div class="comparison-grid">
+  <div class="cg-cell">
+    <div class="cg-label">012b (no cycles)</div>
+    <div class="cg-value good">55.0%</div>
+    <div style="color:#808098;font-size:0.82rem;">10/10 seeds · std 0%</div>
+  </div>
+  <div class="cg-cell">
+    <div class="cg-label">013 broken (triple homeostasis)</div>
+    <div class="cg-value bad">45.0%</div>
+    <div style="color:#808098;font-size:0.82rem;">0/10 seeds · all collapsed</div>
+  </div>
+  <div class="cg-cell">
+    <div class="cg-label">013 fixed (correct cycles)</div>
+    <div class="cg-value highlight">52.0%</div>
+    <div style="color:#808098;font-size:0.82rem;">7/10 seeds · std 4.8%</div>
+  </div>
+</div>
+
+<h2>Distribution (frozen-weight accuracy)</h2>
+<table>
+  <tr><th>Condition</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>All seeds</th></tr>
+  <tr>
+    <td>Baseline</td>
+    <td>53.0%</td><td>4.8%</td><td class="bad">40%</td><td class="good">55%</td>
+    <td class="neutral">55 55 40 55 55 50 55 55 55 55</td>
+  </tr>
+  <tr>
+    <td>Ambient only</td>
+    <td>54.0%</td><td>3.2%</td><td class="bad">45%</td><td class="good">55%</td>
+    <td class="neutral">55 45 55 55 55 55 55 55 55 55</td>
+  </tr>
+  <tr>
+    <td>Dampening only</td>
+    <td class="good">55.0%</td><td class="good">0.0%</td><td class="good">55%</td><td class="good">55%</td>
+    <td class="neutral">55 55 55 55 55 55 55 55 55 55</td>
+  </tr>
+  <tr>
+    <td>Full model</td>
+    <td>52.0%</td><td>4.8%</td><td class="bad">45%</td><td class="good">55%</td>
+    <td class="neutral">45 45 55 55 55 55 55 55 55 45</td>
+  </tr>
+</table>
+
+<h2>Paired t-tests vs Baseline</h2>
+<table>
+  <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Significant?</th></tr>
+  <tr><td>Ambient only vs Baseline</td><td>+1.0%</td><td>0.5145</td><td>0.457</td><td class="neutral">ns</td></tr>
+  <tr><td>Dampening only vs Baseline</td><td>+2.0%</td><td>1.3093</td><td>0.1645</td><td class="neutral">ns</td></tr>
+  <tr><td>Full model vs Baseline</td><td>−1.0%</td><td>−0.4082</td><td>0.5111</td><td class="neutral">ns</td></tr>
+</table>
+
+<h2>Per-pattern mean accuracy (across seeds)</h2>
+<table>
+  <tr><th>Condition</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th></tr>
+  <tr><td>Baseline</td><td>46.0%</td><td>58.0%</td><td>56.0%</td><td>52.0%</td></tr>
+  <tr><td>Ambient only</td><td>42.0%</td><td>58.0%</td><td>58.0%</td><td>58.0%</td></tr>
+  <tr><td>Dampening only</td><td class="bad">40.0%</td><td class="good">60.0%</td><td class="good">60.0%</td><td class="good">60.0%</td></tr>
+  <tr><td>Full model</td><td>46.0%</td><td>54.0%</td><td>54.0%</td><td>54.0%</td></tr>
+</table>
+<p style="color:#808098;font-size:0.85rem;">
+  P1=[1,0,1,0,1]→[0,1,0,1,0] &nbsp;·&nbsp;
+  P2=[1,1,0,0,0]→[0,0,1,1,1] &nbsp;·&nbsp;
+  P3=[1,0,0,0,1]→[0,1,1,1,0] &nbsp;·&nbsp;
+  P4=[0,1,0,1,0]→[1,0,1,0,1]
+</p>
+<p>
+  P1 and P4 are exact complements of each other. The network converges to a fixed output that satisfies
+  P2/P3/P4 but not P1, giving (40+60+60+60)/4 = <strong>55%</strong>. This pattern-level ceiling is unchanged
+  across all propagation-cycle conditions.
+</p>
+
+<h2>Mean |weight| — Full model</h2>
+<table>
+  <tr><th>Seed</th><th>Accuracy</th><th>Mean |weight|</th><th>Note</th></tr>
+  <tr><td>42</td><td class="bad">45%</td><td>0.6230</td><td class="neutral">—</td></tr>
+  <tr><td>137</td><td class="bad">45%</td><td>1.1697</td><td class="neutral">high |w|, still stuck</td></tr>
+  <tr><td>271</td><td class="good">55%</td><td>0.8696</td><td></td></tr>
+  <tr><td>314</td><td class="good">55%</td><td>0.7748</td><td></td></tr>
+  <tr><td>500</td><td class="good">55%</td><td>0.8183</td><td></td></tr>
+  <tr><td>618</td><td class="good">55%</td><td>0.8058</td><td></td></tr>
+  <tr><td>777</td><td class="good">55%</td><td>0.8013</td><td></td></tr>
+  <tr><td>888</td><td class="good">55%</td><td>0.7940</td><td></td></tr>
+  <tr><td>999</td><td class="good">55%</td><td>0.7256</td><td></td></tr>
+  <tr><td>1234</td><td class="bad">45%</td><td class="bad">0.2871</td><td class="bad">weight-starved</td></tr>
+</table>
+<table>
+  <tr><th>Group</th><th>Seeds</th><th>Mean |weight|</th></tr>
+  <tr><td class="good">Good (≥55%)</td><td class="good">7/10</td><td>0.7985</td></tr>
+  <tr><td class="bad">Poor (&lt;55%)</td><td class="bad">3/10</td><td>0.6933</td></tr>
+</table>
+<p style="color:#808098;font-size:0.85rem;">
+  Seed 1234 is clearly weight-starved (|w|=0.29). Seeds 42 and 137 have healthy weights but landed in
+  a different attractor basin. Compare to the <em>broken</em> version: mean |w|=0.35 across all seeds —
+  the triple homeostasis was actively preventing weight accumulation.
+</p>
+
+<h2>Summary comparison: 012b vs 013 (fixed)</h2>
+<table>
+  <tr><th></th><th>012b<br>(no cycles)</th><th>013 broken<br>(triple homeostasis)</th><th>013 fixed<br>(correct cycles)</th></tr>
+  <tr>
+    <td>Mean accuracy</td>
+    <td class="good">55.0%</td>
+    <td class="bad">45.0%</td>
+    <td class="highlight">52.0%</td>
+  </tr>
+  <tr>
+    <td>Std</td>
+    <td class="good">0.0%</td>
+    <td class="good">0.0%</td>
+    <td>4.8%</td>
+  </tr>
+  <tr>
+    <td>Seeds ≥ 55%</td>
+    <td class="good">10/10</td>
+    <td class="bad">0/10</td>
+    <td class="highlight">7/10</td>
+  </tr>
+  <tr>
+    <td>Mean |weight|</td>
+    <td>0.7898</td>
+    <td class="bad">0.3520</td>
+    <td>0.7669</td>
+  </tr>
+</table>
+
+<div class="verdict">
+  <h3>Verdict</h3>
+  <p>
+    <strong>The engine fix is confirmed.</strong> Moving stat updates and <code>regulateThreshold()</code>
+    outside the propagation loop restores healthy weight dynamics: mean |weight| jumps from 0.35 → 0.77
+    and 7/10 seeds recover to the 55% attractor.
+  </p>
+  <p>
+    However, <strong>propagationCycles=3 does not improve over 012b</strong>: it drops from 10/10 → 7/10
+    seeds at 55%, with 3 seeds stuck in alternative 45% attractors. Seeds 42 and 137 appear to lock into
+    a different basin early in training; seed 1234 remains weight-starved. The 55% ceiling itself is
+    unchanged — the per-pattern analysis shows the same P2/P3/P4 = 60%, P1 = 40% split.
+  </p>
+  <p>
+    <strong>Current best: experiment-012b</strong> (weightDecay=0.0025, propagationCycles=1): 10/10 seeds,
+    mean 55.0%, std 0.0%.
+  </p>
+  <p>
+    <strong>Next directions:</strong>
+  </p>
+  <ul>
+    <li>The 55% ceiling is a structural attractor driven by the P1/P4 complement problem. Breaking it requires
+    either more training (more episodes), a different reward signal, or a topology change that lets the network
+    distinguish P1 and P4 context differently.</li>
+    <li>Experiment with more episodes (2000–5000) to see if the ceiling is a convergence-speed limit or a
+    structural one.</li>
+    <li>Try input/output expansion or hidden cluster to give the network more representational capacity.</li>
+    <li>Curriculum learning: train P1/P4 more frequently to force discrimination.</li>
+  </ul>
+</div>
+
+<p style="color:#505060;font-size:0.78rem;margin-top:3rem;">
+  Generated 2026-02-22 · mcfeedback experiment-013 (fixed engine) · 10 seeds × 1000 episodes × 4 conditions
+</p>
+
+</body>
+</html>

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Multi-seed Results</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #161920; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.red    { border-color: #3a2222; background: #1a1215; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Multi-seed Experiment</h1>
+<div class="subtitle">
+  N = 10 seeds &nbsp;·&nbsp;
+  Seeds: 42, 137, 271, 314, 500, 618, 777, 888, 999, 1234 &nbsp;·&nbsp;
+  1000 training episodes &nbsp;·&nbsp;
+  Frozen-weight evaluation &nbsp;·&nbsp;
+  Random chance = 50%
+</div>
+
+<!-- Verdict -->
+<div class="verdict red">
+  <strong>Verdict: no reliable learning detected.</strong><br>
+  No condition beats random chance (50%) consistently across seeds.
+  Dampening only and Full model are statistically <em>significantly worse</em> than Baseline (p&lt;0.05, p&lt;0.01).
+  The novel components are hurting, not helping, in the current parameter regime.
+  Results are highly seed-dependent (Baseline std = 9.4%), indicating
+  the network is settling into different fixed-output biases rather than learning the associations.
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#4e79a7"></div>Baseline</div><div class="leg"><div class="dot" style="background:#f28e2b"></div>Ambient only</div><div class="leg"><div class="dot" style="background:#e15759"></div>Dampening only</div><div class="leg"><div class="dot" style="background:#76b7b2"></div>Full model</div>
+</div>
+
+<h2>1 — Accuracy distribution across seeds</h2>
+<div class="card">
+  <canvas id="stripChart" height="320"></canvas>
+  <p class="meta">Each dot = one seed. Horizontal line = mean. Dashed line = 50% random chance.</p>
+</div>
+
+<h2>2 — Mean ± 1 std</h2>
+<div class="card">
+  <canvas id="barChart" height="260"></canvas>
+  <p class="meta">Error bars show ±1 standard deviation across 10 seeds.</p>
+</div>
+
+<div class="two-col">
+  <div>
+    <h2>3 — Paired t-tests vs Baseline</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Result</th></tr>
+      <tr><td>Ambient only vs Baseline</td><td style="color:#e15759">-3.5%</td><td style="color:#aaa">-1.105</td><td style="color:#aaa">0.2197</td><td style="color:#555;font-weight:600">ns</td></tr><tr><td>Dampening only vs Baseline</td><td style="color:#e15759">-7.5%</td><td style="color:#aaa">-2.764</td><td style="color:#aaa">0.0162</td><td style="color:#e15759;font-weight:600">* p&lt;0.05</td></tr><tr><td>Full model vs Baseline</td><td style="color:#e15759">-8.0%</td><td style="color:#aaa">-3.361</td><td style="color:#aaa">0.0062</td><td style="color:#e15759;font-weight:600">** p&lt;0.01</td></tr>
+    </table>
+    </div>
+    <p class="meta" style="margin-top:8px">Two-tailed paired t-test, df=9. ** p&lt;0.01 &nbsp; * p&lt;0.05 &nbsp; ns = not significant.</p>
+  </div>
+
+  <div>
+    <h2>4 — Raw data (all seeds)</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Seed</th><th>Baseline</th><th>Ambient</th><th>Dampening</th><th>Full</th></tr>
+      <tr><td style="color:#555">42</td><td style="color:#888">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr><tr><td style="color:#555">137</td><td style="color:#76b7b2">65%</td><td style="color:#76b7b2">65%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr><tr><td style="color:#555">271</td><td style="color:#888">45%</td><td style="color:#888">45%</td><td style="color:#e15759">45%</td><td style="color:#888">45%</td></tr><tr><td style="color:#555">314</td><td style="color:#888">55%</td><td style="color:#e15759">35%</td><td style="color:#e15759">45%</td><td style="color:#888">50%</td></tr><tr><td style="color:#555">500</td><td style="color:#888">55%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr><tr><td style="color:#555">618</td><td style="color:#e15759">35%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">35%</td></tr><tr><td style="color:#555">777</td><td style="color:#76b7b2">65%</td><td style="color:#76b7b2">65%</td><td style="color:#888">55%</td><td style="color:#e15759">45%</td></tr><tr><td style="color:#555">888</td><td style="color:#76b7b2">60%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#888">55%</td></tr><tr><td style="color:#555">999</td><td style="color:#888">55%</td><td style="color:#76b7b2">65%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr><tr><td style="color:#555">1234</td><td style="color:#888">55%</td><td style="color:#888">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr style="border-top:2px solid #2a2d3a">
+        <td style="color:#aaa;font-weight:600">Mean</td>
+        <td style="color:#fff;font-weight:600">53.5%</td><td style="color:#fff;font-weight:600">50.0%</td><td style="color:#fff;font-weight:600">46.0%</td><td style="color:#fff;font-weight:600">45.5%</td>
+      </tr>
+      <tr>
+        <td style="color:#555">Std</td>
+        <td style="color:#555">±9.4%</td><td style="color:#555">±10.8%</td><td style="color:#555">±3.2%</td><td style="color:#555">±5.0%</td>
+      </tr>
+    </table>
+    </div>
+  </div>
+</div>
+
+<h2>5 — Per-pattern accuracy (mean across seeds)</h2>
+<div class="card">
+  <canvas id="patternChart" height="260"></canvas>
+  <p class="meta">
+    If the network learned the associations, each condition would show consistent accuracy per pattern.
+    Uneven bars indicate the network is outputting a fixed bias rather than responding to input.
+  </p>
+</div>
+
+<div class="verdict yellow" style="margin-top:28px">
+  <strong>What the per-pattern data shows:</strong><br>
+  Each condition does well on different patterns — there is no single pattern all conditions agree on.
+  This is the signature of a <em>fixed output bias</em>: the network picks one output vector and sticks with it,
+  which happens to match some patterns better than others depending on the random seed.
+  A genuinely learning network would show uniform or systematically high accuracy across all patterns.
+</div>
+
+<script>
+const COLORS = ["#4e79a7","#f28e2b","#e15759","#76b7b2"];
+const LABELS = ["Baseline","Ambient only","Dampening only","Full model"];
+const stripData = [{"label":"Baseline","color":"#4e79a7","values":[45,65,45,55,55,35,65,60,55,55],"mean":53.5,"std":9.4},{"label":"Ambient only","color":"#f28e2b","values":[45,65,45,35,45,45,65,45,65,45],"mean":50,"std":10.8},{"label":"Dampening only","color":"#e15759","values":[45,45,45,45,45,45,55,45,45,45],"mean":46,"std":3.2},{"label":"Full model","color":"#76b7b2","values":[45,45,45,50,45,35,45,55,45,45],"mean":45.5,"std":5}];
+const patternChartData = {"labels":["P1","P2","P3","P4"],"datasets":[{"label":"Baseline","data":[42,62,50,60],"backgroundColor":"#4e79a7cc","borderColor":"#4e79a7","borderWidth":1},{"label":"Ambient only","data":[42,58,42,58],"backgroundColor":"#f28e2bcc","borderColor":"#f28e2b","borderWidth":1},{"label":"Dampening only","data":[58,42,42,42],"backgroundColor":"#e15759cc","borderColor":"#e15759","borderWidth":1},{"label":"Full model","data":[52,40,40,50],"backgroundColor":"#76b7b2cc","borderColor":"#76b7b2","borderWidth":1}]};
+
+// ── Strip chart (custom via scatter) ─────────────────────────────────────
+const stripCtx = document.getElementById('stripChart').getContext('2d');
+
+// One scatter dataset per condition (the dots)
+const scatterSets = stripData.map((d, ci) => ({
+  type: 'scatter',
+  label: d.label,
+  data: d.values.map((v, si) => ({ x: ci + 1 + (Math.random()-0.5)*0.18, y: v })),
+  backgroundColor: COLORS[ci] + 'bb',
+  borderColor:     COLORS[ci],
+  borderWidth: 1,
+  pointRadius: 6,
+  pointHoverRadius: 8,
+  showLine: false,
+}));
+
+// Mean line segments as scatter with showLine
+const meanSets = stripData.map((d, ci) => ({
+  type: 'scatter',
+  label: '_mean_' + ci,
+  data: [{ x: ci + 0.7, y: d.mean }, { x: ci + 1.3, y: d.mean }],
+  showLine: true,
+  borderColor: COLORS[ci],
+  borderWidth: 3,
+  pointRadius: 0,
+  fill: false,
+}));
+
+new Chart(stripCtx, {
+  type: 'scatter',
+  data: { datasets: [...scatterSets, ...meanSets] },
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        filter: item => !item.dataset.label.startsWith('_'),
+        callbacks: {
+          label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%'
+        }
+      },
+      annotation: {
+        annotations: {
+          chance: {
+            type: 'line', yMin: 50, yMax: 50,
+            borderColor: '#444', borderWidth: 1, borderDash: [6, 4],
+            label: { content: '50% chance', display: true, color: '#555', font: { size: 10 }, position: 'end', yAdjust: -8 }
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        min: 0.3, max: 4 + 0.7,
+        ticks: {
+          color: '#aaa',
+          callback: (v) => {
+            const idx = Math.round(v) - 1;
+            return idx >= 0 && idx < LABELS.length ? LABELS[idx] : '';
+          },
+          stepSize: 1,
+          maxTicksLimit: 6,
+        },
+        grid: { color: '#1a1d27' },
+      },
+      y: {
+        min: 25, max: 80,
+        title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: '#1e2130' },
+      }
+    }
+  }
+});
+
+// ── Bar chart with error bars ──────────────────────────────────────────────
+// Chart.js doesn't have built-in error bars; draw them as a custom plugin.
+const barCtx = document.getElementById('barChart').getContext('2d');
+const barPlugin = {
+  id: 'errorbars',
+  afterDatasetDraw(chart) {
+    const { ctx, scales: { x, y } } = chart;
+    chart.data.datasets.forEach((ds, di) => {
+      if (!ds._stds) return;
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const std = ds._stds[i];
+        if (std == null) return;
+        const cx = bar.x, cy = bar.y;
+        const top    = y.getPixelForValue(ds.data[i] + std);
+        const bottom = y.getPixelForValue(ds.data[i] - std);
+        const w = 6;
+        ctx.save();
+        ctx.strokeStyle = ds.borderColor[i] || ds.borderColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, top); ctx.lineTo(cx, bottom);
+        ctx.moveTo(cx-w, top); ctx.lineTo(cx+w, top);
+        ctx.moveTo(cx-w, bottom); ctx.lineTo(cx+w, bottom);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+};
+
+new Chart(barCtx, {
+  type: 'bar',
+  plugins: [barPlugin],
+  data: {
+    labels: LABELS,
+    datasets: [{
+      label: 'Mean accuracy',
+      data: stripData.map(d => d.mean),
+      _stds: stripData.map(d => d.std),
+      backgroundColor: COLORS.map(c => c + '88'),
+      borderColor: COLORS,
+      borderWidth: 2,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' Mean: ' + ctx.parsed.y.toFixed(1) + '%' } },
+    },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 30, max: 70,
+        title: { display: true, text: 'Mean accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: '#1e2130' },
+      }
+    }
+  }
+});
+
+// ── Per-pattern grouped bar ────────────────────────────────────────────────
+new Chart(document.getElementById('patternChart'), {
+  type: 'bar',
+  data: patternChartData,
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: {
+        labels: { color: '#aaa', font: { size: 11 }, boxWidth: 12 }
+      },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%' } }
+    },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 30, max: 75,
+        title: { display: true, text: 'Mean accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: '#1e2130' },
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

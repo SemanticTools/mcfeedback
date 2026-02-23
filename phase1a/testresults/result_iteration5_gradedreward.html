@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 5: Graded Reward Signal</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #161920; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.red    { border-color: #3a2222; background: #1a1215; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .verdict.blue   { border-color: #1e2a3a; background: #111520; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .param-change { font-family: monospace; font-size: 0.82rem; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 5px; padding: 12px 16px; margin-bottom: 20px; color: #aaa; line-height: 1.9; }
+  .param-change .new { color: #76b7b2; }
+  .param-change .note { color: #555; }
+  .reward-table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 0.82rem; margin-top: 10px; }
+  .reward-table th { background: #1e2130; color: #777; padding: 7px 14px; text-align: right; border-bottom: 1px solid #2a2d3a; }
+  .reward-table th:first-child { text-align: left; }
+  .reward-table td { padding: 6px 14px; text-align: right; border-bottom: 1px solid #161920; color: #aaa; }
+  .reward-table td:first-child { text-align: left; color: #d0d0d0; }
+  .reward-table .dim { color: #444; }
+  .reward-table .bright { color: #76b7b2; }
+  @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 5: Graded Reward Signal</h1>
+<div class="subtitle">
+  experiment-005.mjs &nbsp;·&nbsp;
+  N = 10 seeds &nbsp;·&nbsp;
+  Seeds: 42, 137, 271, 314, 500, 618, 777, 888, 999, 1234 &nbsp;·&nbsp;
+  1000 training episodes &nbsp;·&nbsp;
+  Frozen-weight evaluation &nbsp;·&nbsp;
+  Random chance = 50%
+</div>
+
+<!-- Parameter block -->
+<div class="param-change">
+  <strong style="color:#fff">Change:</strong> non-linear reward — squash near-50% accuracy toward zero signal.<br>
+  reward &nbsp;= <span class="note">sign(acc−0.5) × |linear|<sup>1</sup></span> &nbsp;<span class="note">← was this (linear)</span><br>
+  reward &nbsp;= <span class="new">sign(acc−0.5) × |(acc−0.5)×2|<sup>rewardExponent</sup></span><br>
+  <span class="new">rewardExponent &nbsp;2.0</span> &nbsp;<span class="note">— squashes the "meh zone" near 50%</span><br>
+  flagStrengthGain / flagDecayRate / flagStrengthThreshold carried over from experiment-004.
+</div>
+
+<!-- Reward landscape table -->
+<div class="card" style="margin-bottom:20px">
+  <strong style="font-size:0.85rem; color:#aaa">Reward signal by accuracy — linear vs squared</strong>
+  <table class="reward-table">
+    <tr><th>Accuracy</th><th>Linear (exp=1)</th><th>Squared (exp=2)</th><th>Ratio</th></tr>
+    <tr><td>55%</td><td>+0.10</td><td class="dim">+0.01</td><td class="dim">10× weaker</td></tr>
+    <tr><td>60%</td><td>+0.20</td><td class="dim">+0.04</td><td class="dim">5× weaker</td></tr>
+    <tr><td>70%</td><td>+0.40</td><td>+0.16</td><td class="dim">2.5× weaker</td></tr>
+    <tr><td>80%</td><td>+0.60</td><td class="bright">+0.36</td><td>1.7× weaker</td></tr>
+    <tr><td>100%</td><td>+1.00</td><td class="bright">+1.00</td><td>equal</td></tr>
+  </table>
+  <p class="meta">Squaring compresses early learning signal — a network making progress at 60% gets 5× less feedback than before.</p>
+</div>
+
+<!-- Verdict -->
+<div class="verdict red">
+  <strong>Verdict: hypothesis rejected — squared reward made things worse.</strong><br>
+  Full model dropped to 45.0% mean and is now <em>significantly worse than Baseline</em> (p = 0.03, first
+  statistically significant result — in the wrong direction). The squared reward didn't just suppress
+  fixed-output strategies; it starved early learning signal before the network could bootstrap.
+  A network at 60% early in training gets reward 0.04 instead of 0.20 — not enough to reinforce
+  the direction of improvement. The flag mechanism (which was working in experiment-004) is
+  effectively disabled because the chemical signal driving it is too weak to accumulate.
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#4e79a7"></div>Baseline</div>
+  <div class="leg"><div class="dot" style="background:#f28e2b"></div>Ambient only</div>
+  <div class="leg"><div class="dot" style="background:#e15759"></div>Dampening only</div>
+  <div class="leg"><div class="dot" style="background:#76b7b2"></div>Full model</div>
+</div>
+
+<h2>1 — Accuracy distribution across seeds</h2>
+<div class="card">
+  <canvas id="stripChart" height="320"></canvas>
+  <p class="meta">Each dot = one seed. Horizontal line = mean. Dashed line = 50% random chance.</p>
+</div>
+
+<h2>2 — Mean ± 1 std</h2>
+<div class="card">
+  <canvas id="barChart" height="260"></canvas>
+  <p class="meta">Error bars show ±1 standard deviation across 10 seeds.</p>
+</div>
+
+<div class="two-col">
+  <div>
+    <h2>3 — Paired t-tests vs Baseline</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Result</th></tr>
+      <tr>
+        <td>Ambient only vs Baseline</td>
+        <td style="color:#e15759">-6.5%</td>
+        <td style="color:#aaa">-1.3139</td>
+        <td style="color:#aaa">0.1634</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Dampening only vs Baseline</td>
+        <td style="color:#e15759">-4.0%</td>
+        <td style="color:#aaa">-1.1767</td>
+        <td style="color:#aaa">0.1989</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Full model vs Baseline</td>
+        <td style="color:#e15759">-9.0%</td>
+        <td style="color:#aaa">-2.3772</td>
+        <td style="color:#aaa">0.0306</td>
+        <td style="color:#e15759;font-weight:600">* p&lt;0.05</td>
+      </tr>
+    </table>
+    </div>
+    <p class="meta" style="margin-top:8px">Two-tailed paired t-test, df=9. First statistically significant result — but in the wrong direction.</p>
+  </div>
+
+  <div>
+    <h2>4 — Raw data (all seeds)</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Seed</th><th>Baseline</th><th>Ambient</th><th>Dampening</th><th>Full</th></tr>
+      <tr><td style="color:#555">42</td>   <td style="color:#76b7b2">65%</td><td style="color:#e15759">45%</td><td style="color:#76b7b2">65%</td><td style="color:#76b7b2">65%</td></tr>
+      <tr><td style="color:#555">137</td>  <td style="color:#76b7b2">65%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">271</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">314</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td><td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">500</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">618</td>  <td style="color:#e15759">45%</td><td style="color:#76b7b2">65%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">777</td>  <td style="color:#e15759">35%</td><td style="color:#888">55%</td>  <td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">888</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td><td style="color:#76b7b2">65%</td><td style="color:#e15759">35%</td></tr>
+      <tr><td style="color:#555">999</td>  <td style="color:#76b7b2">65%</td><td style="color:#e15759">40%</td><td style="color:#e15759">45%</td><td style="color:#e15759">35%</td></tr>
+      <tr><td style="color:#555">1234</td> <td style="color:#e15759">45%</td><td style="color:#e15759">35%</td><td style="color:#e15759">45%</td><td style="color:#e15759">45%</td></tr>
+      <tr style="border-top:2px solid #2a2d3a">
+        <td style="color:#aaa;font-weight:600">Mean</td>
+        <td style="color:#fff;font-weight:600">54.0%</td>
+        <td style="color:#fff;font-weight:600">47.5%</td>
+        <td style="color:#fff;font-weight:600">50.0%</td>
+        <td style="color:#fff;font-weight:600">45.0%</td>
+      </tr>
+      <tr>
+        <td style="color:#555">Std</td>
+        <td style="color:#555">±9.9%</td>
+        <td style="color:#555">±8.6%</td>
+        <td style="color:#555">±8.5%</td>
+        <td style="color:#555">±8.2%</td>
+      </tr>
+    </table>
+    </div>
+  </div>
+</div>
+
+<h2>5 — Per-pattern accuracy (mean across seeds)</h2>
+<div class="card">
+  <canvas id="patternChart" height="260"></canvas>
+  <p class="meta">
+    Full model P2 and P3 collapsed to 38–42% — below chance on those patterns.
+    The network is actively getting them wrong, suggesting it locked into a fixed bias
+    that happens to invert two of the four patterns.
+  </p>
+</div>
+
+<div class="verdict yellow" style="margin-top:28px">
+  <strong>Why bootstrapping failed:</strong><br>
+  The flag gate (from experiment-004) requires consistent trace signal over ~2 turns to unlock.
+  That signal accumulates via the chemical (reward) pathway. With reward squared, a network
+  at 60% accuracy emits chemical level 0.04 — too weak to meaningfully update the flag,
+  let alone drive weight changes. The two mechanisms (flag gate + squared reward) interfere:
+  each individually requires signal to bootstrap, and together they form a deadlock.
+</div>
+
+<div class="verdict blue" style="margin-top:16px">
+  <strong>Progress across iterations:</strong><br>
+  Iter 1 (original flags, linear reward): &nbsp;&nbsp;&nbsp;Full = 45.5%, max = 55%<br>
+  Iter 3 (flipped signs): &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Full = 46.0%, max = 55%<br>
+  Iter 4 (flag gate, linear reward): &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Full = 53.0%, max = 65% ← best so far<br>
+  Iter 5 (flag gate + squared reward): &nbsp;&nbsp;&nbsp;&nbsp;Full = 45.0%, max = 65% — regression<br>
+  <strong>Next:</strong> revert to linear reward, focus on tuning the flag gate (iter-004 mechanism).
+</div>
+
+<script>
+const COLORS = ["#4e79a7","#f28e2b","#e15759","#76b7b2"];
+const LABELS = ["Baseline","Ambient only","Dampening only","Full model"];
+
+const stripData = [
+  { label: "Baseline",       color: "#4e79a7", values: [65,65,55,55,55,45,35,55,65,45], mean: 54.0, std: 9.9 },
+  { label: "Ambient only",   color: "#f28e2b", values: [45,45,55,45,45,65,55,45,40,35], mean: 47.5, std: 8.6 },
+  { label: "Dampening only", color: "#e15759", values: [65,45,45,55,45,45,45,65,45,45], mean: 50.0, std: 8.5 },
+  { label: "Full model",     color: "#76b7b2", values: [65,45,45,45,45,45,45,35,35,45], mean: 45.0, std: 8.2 },
+];
+
+const patternChartData = {
+  labels: ["P1","P2","P3","P4"],
+  datasets: [
+    { label: "Baseline",       data: [50,58,58,50], backgroundColor: "#4e79a7cc", borderColor: "#4e79a7", borderWidth: 1 },
+    { label: "Ambient only",   data: [50,44,48,48], backgroundColor: "#f28e2bcc", borderColor: "#f28e2b", borderWidth: 1 },
+    { label: "Dampening only", data: [60,48,52,40], backgroundColor: "#e15759cc", borderColor: "#e15759", borderWidth: 1 },
+    { label: "Full model",     data: [50,38,42,50], backgroundColor: "#76b7b2cc", borderColor: "#76b7b2", borderWidth: 1 },
+  ]
+};
+
+// ── Strip chart ───────────────────────────────────────────────────────────
+const scatterSets = stripData.map((d, ci) => ({
+  type: 'scatter',
+  label: d.label,
+  data: d.values.map(v => ({ x: ci + 1 + (Math.random()-0.5)*0.18, y: v })),
+  backgroundColor: COLORS[ci] + 'bb',
+  borderColor:     COLORS[ci],
+  borderWidth: 1,
+  pointRadius: 6,
+  pointHoverRadius: 8,
+  showLine: false,
+}));
+
+const meanSets = stripData.map((d, ci) => ({
+  type: 'scatter',
+  label: '_mean_' + ci,
+  data: [{ x: ci + 0.7, y: d.mean }, { x: ci + 1.3, y: d.mean }],
+  showLine: true,
+  borderColor: COLORS[ci],
+  borderWidth: 3,
+  pointRadius: 0,
+  fill: false,
+}));
+
+new Chart(document.getElementById('stripChart').getContext('2d'), {
+  type: 'scatter',
+  data: { datasets: [...scatterSets, ...meanSets] },
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        filter: item => !item.dataset.label.startsWith('_'),
+        callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%' }
+      },
+    },
+    scales: {
+      x: {
+        min: 0.3, max: 4.7,
+        ticks: {
+          color: '#aaa',
+          callback: v => { const i = Math.round(v) - 1; return i >= 0 && i < LABELS.length ? LABELS[i] : ''; },
+          stepSize: 1, maxTicksLimit: 6,
+        },
+        grid: { color: '#1a1d27' },
+      },
+      y: {
+        min: 25, max: 75,
+        title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: {
+          color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130',
+          lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1,
+        },
+      }
+    }
+  }
+});
+
+// ── Bar chart with error bars ─────────────────────────────────────────────
+const barPlugin = {
+  id: 'errorbars',
+  afterDatasetDraw(chart) {
+    const { ctx, scales: { x, y } } = chart;
+    chart.data.datasets.forEach((ds, di) => {
+      if (!ds._stds) return;
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const std = ds._stds[i];
+        if (std == null) return;
+        const cx = bar.x;
+        const top    = y.getPixelForValue(ds.data[i] + std);
+        const bottom = y.getPixelForValue(ds.data[i] - std);
+        const w = 6;
+        ctx.save();
+        ctx.strokeStyle = ds.borderColor[i] || ds.borderColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, top);      ctx.lineTo(cx, bottom);
+        ctx.moveTo(cx-w, top);    ctx.lineTo(cx+w, top);
+        ctx.moveTo(cx-w, bottom); ctx.lineTo(cx+w, bottom);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+};
+
+new Chart(document.getElementById('barChart').getContext('2d'), {
+  type: 'bar',
+  plugins: [barPlugin],
+  data: {
+    labels: LABELS,
+    datasets: [{
+      label: 'Mean accuracy',
+      data: stripData.map(d => d.mean),
+      _stds: stripData.map(d => d.std),
+      backgroundColor: COLORS.map(c => c + '88'),
+      borderColor: COLORS,
+      borderWidth: 2,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' Mean: ' + ctx.parsed.y.toFixed(1) + '%' } },
+    },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 30, max: 70,
+        title: { display: true, text: 'Mean accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: {
+          color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130',
+          lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1,
+        },
+      }
+    }
+  }
+});
+
+// ── Per-pattern grouped bar ───────────────────────────────────────────────
+new Chart(document.getElementById('patternChart'), {
+  type: 'bar',
+  data: patternChartData,
+  options: {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: { labels: { color: '#aaa', font: { size: 11 }, boxWidth: 12 } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%' } }
+    },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 25, max: 75,
+        title: { display: true, text: 'Mean accuracy (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: {
+          color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130',
+          lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1,
+        },
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

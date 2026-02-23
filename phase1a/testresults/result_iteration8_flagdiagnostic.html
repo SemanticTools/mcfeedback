@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 8: Flag Strength Diagnostic</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 7px 14px; border-bottom: 1px solid #161920; font-family: monospace; font-size: 0.80rem; }
+  td.label { font-family: inherit; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.red    { border-color: #3a2222; background: #1a1215; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .verdict.blue   { border-color: #1e2a3a; background: #111520; }
+  .verdict.purple { border-color: #2a1e3a; background: #130f1a; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 8: Flag Strength Diagnostic</h1>
+<div class="subtitle">
+  experiment-008.mjs &nbsp;·&nbsp;
+  No mechanism changes &nbsp;·&nbsp;
+  Flag snapshots at ep 100 / 300 / 500 &nbsp;·&nbsp;
+  Output-bound synapses only &nbsp;·&nbsp;
+  Base: experiment-004
+</div>
+
+<!-- Key finding -->
+<div class="verdict red">
+  <strong>Prediction was wrong — and that's the most useful result so far.</strong><br>
+  The prediction was: good seeds latch flags by ep 100, poor seeds don't.
+  Reality: <strong>both groups have 87–95% of flags latched by ep 100</strong>, with mean
+  |flagStrength| ≈ 0.93 in both. The flag gate opens just as fast on failing seeds as on
+  succeeding ones. The bottleneck is not latching speed.<br><br>
+  The real problem: <strong>the flags are not selective — they're saturated.</strong>
+  With <code>flagStrengthGain: 0.3</code>, any synapse that sees two consecutive non-zero
+  traces reaches 0.6 and latches. Since output-bound synapses fire on nearly every step
+  (mismatch or co-activation always yields a non-zero trace), they all latch uniformly.
+  The gate is open for 90%+ of synapses — it's not filtering anything.
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#76b7b2"></div>65% final accuracy</div>
+  <div class="leg"><div class="dot" style="background:#f28e2b"></div>55% final accuracy</div>
+  <div class="leg"><div class="dot" style="background:#e15759"></div>45% final accuracy</div>
+</div>
+
+<h2>1 — Latched flag % at episode 100 (per seed)</h2>
+<div class="card">
+  <canvas id="latchedBar" height="200"></canvas>
+  <p class="meta">Coloured by final accuracy. All seeds ≥76% latched by ep 100 — poor seeds are indistinguishable from good. The 50% threshold line shows where useful filtering would begin.</p>
+</div>
+
+<h2>2 — No correlation: latched % vs final accuracy</h2>
+<div class="two-col">
+  <div class="card">
+    <strong style="font-size:0.82rem;color:#aaa">Latched % at ep 100 vs final accuracy</strong>
+    <canvas id="scatterLatched" height="240"></canvas>
+    <p class="meta">Flat relationship — more latched flags does not predict better outcome. Poor seeds (45%) have slightly <em>higher</em> latch rates.</p>
+  </div>
+  <div class="card">
+    <strong style="font-size:0.82rem;color:#aaa">Mean |flagStrength| across checkpoints</strong>
+    <canvas id="groupLine" height="240"></canvas>
+    <p class="meta">Good vs poor seeds. Both groups plateau near 0.95 by ep 300. No divergence at any checkpoint.</p>
+  </div>
+</div>
+
+<h2>3 — Full per-seed snapshot data</h2>
+<div class="card" style="padding:0; overflow-x:auto">
+<table>
+  <tr>
+    <th rowspan="2">Seed</th>
+    <th rowspan="2">Final acc</th>
+    <th rowspan="2">Out-bound syn</th>
+    <th colspan="4" style="text-align:center; border-left:1px solid #2a2d3a">Episode 100</th>
+    <th colspan="4" style="text-align:center; border-left:1px solid #2a2d3a">Episode 300</th>
+    <th colspan="4" style="text-align:center; border-left:1px solid #2a2d3a">Episode 500</th>
+  </tr>
+  <tr>
+    <th style="border-left:1px solid #2a2d3a">Latched</th><th>Build</th><th>Mean|f|</th><th>Max|f|</th>
+    <th style="border-left:1px solid #2a2d3a">Latched</th><th>Build</th><th>Mean|f|</th><th>Max|f|</th>
+    <th style="border-left:1px solid #2a2d3a">Latched</th><th>Build</th><th>Mean|f|</th><th>Max|f|</th>
+  </tr>
+  <!-- poor seeds -->
+  <tr>
+    <td class="label" style="color:#555">42</td>
+    <td style="color:#e15759;font-weight:600">45%</td><td>162</td>
+    <td style="border-left:1px solid #1e2130">151 (93%)</td><td>11 (7%)</td><td>0.9512</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">151 (93%)</td><td>11 (7%)</td><td>0.9512</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">151 (93%)</td><td>11 (7%)</td><td>0.9512</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">137</td>
+    <td style="color:#e15759;font-weight:600">45%</td><td>166</td>
+    <td style="border-left:1px solid #1e2130">145 (87%)</td><td>21 (13%)</td><td>0.8259</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">154 (93%)</td><td>12 (7%)</td><td>0.9482</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">154 (93%)</td><td>12 (7%)</td><td>0.9482</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">271</td>
+    <td style="color:#e15759;font-weight:600">45%</td><td>157</td>
+    <td style="border-left:1px solid #1e2130">147 (94%)</td><td>10 (6%)</td><td>0.9529</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">147 (94%)</td><td>10 (6%)</td><td>0.9529</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">147 (94%)</td><td>10 (6%)</td><td>0.9529</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">314</td>
+    <td style="color:#e15759;font-weight:600">45%</td><td>141</td>
+    <td style="border-left:1px solid #1e2130">132 (94%)</td><td>9 (6%)</td><td>0.9553</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">132 (94%)</td><td>9 (6%)</td><td>0.9553</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">132 (94%)</td><td>9 (6%)</td><td>0.9553</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">500</td>
+    <td style="color:#e15759;font-weight:600">45%</td><td>153</td>
+    <td style="border-left:1px solid #1e2130">143 (93%)</td><td>10 (7%)</td><td>0.9523</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">145 (95%)</td><td>8 (5%)</td><td>0.9614</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">145 (95%)</td><td>8 (5%)</td><td>0.9614</td><td>1.000</td>
+  </tr>
+  <!-- good seeds -->
+  <tr>
+    <td class="label" style="color:#555">618</td>
+    <td style="color:#f28e2b;font-weight:600">55%</td><td>171</td>
+    <td style="border-left:1px solid #1e2130">161 (94%)</td><td>10 (6%)</td><td>0.9573</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">161 (94%)</td><td>10 (6%)</td><td>0.9573</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">161 (94%)</td><td>10 (6%)</td><td>0.9573</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">777</td>
+    <td style="color:#f28e2b;font-weight:600">55%</td><td>168</td>
+    <td style="border-left:1px solid #1e2130">127 (76%)</td><td>41 (24%)</td><td>0.8244</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">155 (92%)</td><td>13 (8%)</td><td>0.9458</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">152 (90%)</td><td>16 (10%)</td><td>0.9333</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">888</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td><td>155</td>
+    <td style="border-left:1px solid #1e2130">142 (92%)</td><td>13 (8%)</td><td>0.9400</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">142 (92%)</td><td>13 (8%)</td><td>0.9400</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">138 (89%)</td><td>17 (11%)</td><td>0.9219</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">999</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td><td>151</td>
+    <td style="border-left:1px solid #1e2130">143 (95%)</td><td>8 (5%)</td><td>0.9596</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">143 (95%)</td><td>8 (5%)</td><td>0.9609</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">143 (95%)</td><td>8 (5%)</td><td>0.9609</td><td>1.000</td>
+  </tr>
+  <tr>
+    <td class="label" style="color:#555">1234</td>
+    <td style="color:#76b7b2;font-weight:600">65%</td><td>150</td>
+    <td style="border-left:1px solid #1e2130">136 (91%)</td><td>14 (9%)</td><td>0.9333</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">136 (91%)</td><td>14 (9%)</td><td>0.9333</td><td>1.000</td>
+    <td style="border-left:1px solid #1e2130">117 (78%)</td><td>33 (22%)</td><td>0.8400</td><td>1.000</td>
+  </tr>
+</table>
+</div>
+
+<h2>4 — Group comparison at each checkpoint</h2>
+<div class="card" style="padding:0">
+<table>
+  <tr>
+    <th rowspan="2" class="label">Metric</th>
+    <th colspan="3" style="text-align:center">Episode 100</th>
+    <th colspan="3" style="text-align:center; border-left:1px solid #2a2d3a">Episode 300</th>
+    <th colspan="3" style="text-align:center; border-left:1px solid #2a2d3a">Episode 500</th>
+  </tr>
+  <tr>
+    <th>Good</th><th>Poor</th><th>Δ</th>
+    <th style="border-left:1px solid #2a2d3a">Good</th><th>Poor</th><th>Δ</th>
+    <th style="border-left:1px solid #2a2d3a">Good</th><th>Poor</th><th>Δ</th>
+  </tr>
+  <tr>
+    <td class="label">Latched (% of output-bound syn)</td>
+    <td>89.3%</td><td>92.3%</td><td style="color:#e15759">−3.0%</td>
+    <td style="border-left:1px solid #1e2130">92.7%</td><td>93.6%</td><td style="color:#e15759">−0.9%</td>
+    <td style="border-left:1px solid #1e2130">89.3%</td><td>93.6%</td><td style="color:#e15759">−4.3%</td>
+  </tr>
+  <tr>
+    <td class="label">Building (% of output-bound syn)</td>
+    <td>10.7%</td><td>7.7%</td><td style="color:#76b7b2">+3.0%</td>
+    <td style="border-left:1px solid #1e2130">7.3%</td><td>6.4%</td><td style="color:#76b7b2">+0.9%</td>
+    <td style="border-left:1px solid #1e2130">10.7%</td><td>6.4%</td><td style="color:#76b7b2">+4.3%</td>
+  </tr>
+  <tr>
+    <td class="label">Mean |flagStrength|</td>
+    <td>0.923</td><td>0.928</td><td style="color:#555">−0.005</td>
+    <td style="border-left:1px solid #1e2130">0.947</td><td>0.954</td><td style="color:#555">−0.007</td>
+    <td style="border-left:1px solid #1e2130">0.923</td><td>0.954</td><td style="color:#555">−0.031</td>
+  </tr>
+  <tr>
+    <td class="label">Max |flagStrength|</td>
+    <td>1.000</td><td>1.000</td><td style="color:#555">0.000</td>
+    <td style="border-left:1px solid #1e2130">1.000</td><td>1.000</td><td style="color:#555">0.000</td>
+    <td style="border-left:1px solid #1e2130">1.000</td><td>1.000</td><td style="color:#555">0.000</td>
+  </tr>
+</table>
+</div>
+<p class="meta" style="margin-top:-14px; margin-bottom: 20px">Poor seeds have <em>slightly higher</em> latch rates at every checkpoint — the opposite of the prediction.</p>
+
+<div class="verdict purple">
+  <strong>What this rules out (and what it reveals):</strong><br>
+  ✗ &nbsp;Flag bootstrapping speed is not the bottleneck<br>
+  ✗ &nbsp;Poor seeds don't have fewer latched flags<br>
+  ✓ &nbsp;<strong>The flag mechanism is not selective.</strong> With <code>flagStrengthGain: 0.3</code>,
+  any synapse that sees two consecutive non-zero traces (virtually guaranteed since every
+  output-bound synapse fires on almost every step) reaches 0.6 and latches. The gate opens
+  for 90%+ of synapses uniformly — it provides no discrimination between signal and noise.
+</div>
+
+<div class="verdict blue">
+  <strong>What needs to change:</strong><br>
+  The flag mechanism needs to be <em>harder to latch</em> — it should only unlock synapses
+  that show sustained, consistent signal over many turns, not just 2.
+  Three candidate fixes (decreasing invasiveness):<br><br>
+  1. <strong>Raise <code>flagStrengthThreshold</code> to 0.9</strong> — require near-saturation.
+  With gain=0.3, this means ~3 consistent turns minimum, but still latches fast.<br>
+  2. <strong>Lower <code>flagStrengthGain</code> to 0.1</strong> — requires ~5+ consistent
+  turns to reach 0.5 threshold, ~9+ to reach 0.9. Adds meaningful temporal selectivity.<br>
+  3. <strong>Lower gain to 0.1 + raise threshold to 0.8</strong> — requires ~8 consistent
+  turns with no direction flip. This is the most discriminating option.
+</div>
+
+<script>
+const SEEDS  = [42, 137, 271, 314, 500, 618, 777, 888, 999, 1234];
+const ACC    = [45, 45, 45, 45, 45, 55, 55, 65, 65, 65];
+const LATCHED_EP100_PCT = [93, 87, 94, 94, 93, 94, 76, 92, 95, 91];
+const MEAN_EP100 = [0.9512, 0.8259, 0.9529, 0.9553, 0.9523, 0.9573, 0.8244, 0.9400, 0.9596, 0.9333];
+
+function accColor(a) {
+  if (a >= 65) return '#76b7b2';
+  if (a >= 55) return '#f28e2b';
+  return '#e15759';
+}
+
+// ── Chart 1: Latched % at ep100 per seed ─────────────────────────────────
+new Chart(document.getElementById('latchedBar').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: SEEDS.map((s, i) => `${s}\n(${ACC[i]}%)`),
+    datasets: [{
+      label: 'Latched % at ep100',
+      data: LATCHED_EP100_PCT,
+      backgroundColor: ACC.map(a => accColor(a) + '99'),
+      borderColor: ACC.map(a => accColor(a)),
+      borderWidth: 2,
+      borderRadius: 3,
+    }]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` Seed ${SEEDS[ctx.dataIndex]}: ${ctx.parsed.y}% latched (${ACC[ctx.dataIndex]}% final acc)` } },
+    },
+    scales: {
+      x: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 50, max: 100,
+        title: { display: true, text: 'Latched flags (%)', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: {
+          color: ctx => ctx.tick.value === 90 ? '#2a3a2a' : '#1e2130',
+          lineWidth: ctx => ctx.tick.value === 90 ? 2 : 1,
+        },
+      }
+    }
+  }
+});
+
+// ── Chart 2: Scatter latched% vs accuracy ────────────────────────────────
+const scatterPts = SEEDS.map((s, i) => ({ x: LATCHED_EP100_PCT[i], y: ACC[i], seed: s }));
+new Chart(document.getElementById('scatterLatched').getContext('2d'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      data: scatterPts,
+      backgroundColor: ACC.map(a => accColor(a) + 'cc'),
+      borderColor: ACC.map(a => accColor(a)),
+      borderWidth: 1, pointRadius: 7, pointHoverRadius: 9,
+    }]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` Seed ${scatterPts[ctx.dataIndex].seed}: ${ctx.parsed.x}% latched → ${ctx.parsed.y}% acc` } },
+    },
+    scales: {
+      x: {
+        min: 70, max: 100,
+        title: { display: true, text: 'Latched % at ep100', color: '#555', font: { size: 10 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: '#1e2130' },
+      },
+      y: {
+        min: 35, max: 75,
+        title: { display: true, text: 'Final accuracy (%)', color: '#555', font: { size: 10 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: ctx => ctx.tick.value === 50 ? '#333' : '#1e2130', lineWidth: ctx => ctx.tick.value === 50 ? 2 : 1 },
+      }
+    }
+  }
+});
+
+// ── Chart 3: Mean flagStrength by group over checkpoints ─────────────────
+new Chart(document.getElementById('groupLine').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: ['ep 100', 'ep 300', 'ep 500'],
+    datasets: [
+      {
+        label: 'Good seeds (≥55%)',
+        data: [0.923, 0.947, 0.923],
+        borderColor: '#76b7b2', backgroundColor: '#76b7b233',
+        borderWidth: 2, pointRadius: 5, fill: false, tension: 0.3,
+      },
+      {
+        label: 'Poor seeds (<55%)',
+        data: [0.928, 0.954, 0.954],
+        borderColor: '#e15759', backgroundColor: '#e1575933',
+        borderWidth: 2, pointRadius: 5, fill: false, tension: 0.3,
+      }
+    ]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { labels: { color: '#aaa', font: { size: 11 }, boxWidth: 12 } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(3)}` } },
+    },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 0.7, max: 1.05,
+        title: { display: true, text: 'Mean |flagStrength|', color: '#555', font: { size: 10 } },
+        ticks: { color: '#555' },
+        grid: { color: '#1e2130' },
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Explained</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117;
+    color: #d0d0d0;
+    line-height: 1.7;
+    padding: 40px 24px;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  h1 { font-size: 1.7rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.88rem; color: #666; margin-bottom: 48px; }
+
+  h2 {
+    font-size: 1.1rem; font-weight: 700; color: #fff;
+    margin: 48px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #222;
+  }
+  h3 { font-size: 0.95rem; font-weight: 600; color: #aaa; margin: 28px 0 8px; }
+
+  p { margin-bottom: 14px; color: #bbb; font-size: 0.93rem; }
+  p strong { color: #e0e0e0; }
+
+  ul, ol { margin: 0 0 14px 20px; }
+  li { margin-bottom: 7px; color: #bbb; font-size: 0.93rem; }
+  li strong { color: #e0e0e0; }
+
+  code {
+    font-family: 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.82rem;
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #7ec8e3;
+  }
+
+  .callout {
+    background: #1a1d27;
+    border-left: 3px solid #4e79a7;
+    border-radius: 0 6px 6px 0;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 0.91rem;
+    color: #bbb;
+  }
+  .callout.orange { border-color: #f28e2b; }
+  .callout.green  { border-color: #76b7b2; }
+  .callout.red    { border-color: #e15759; }
+
+  .diagram {
+    background: #13151f;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    padding: 24px;
+    margin: 20px 0;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: #888;
+    line-height: 1.9;
+    overflow-x: auto;
+  }
+  .diagram .hl  { color: #7ec8e3; }
+  .diagram .hl2 { color: #f28e2b; }
+  .diagram .hl3 { color: #76b7b2; }
+  .diagram .hl4 { color: #e15759; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin: 16px 0 24px; }
+  th {
+    background: #1e2130; color: #888; font-weight: 600;
+    text-align: left; padding: 9px 14px;
+    border-bottom: 2px solid #2a2d3a;
+  }
+  td { padding: 8px 14px; border-bottom: 1px solid #1a1d27; color: #bbb; }
+  tr:hover td { background: #1a1d27; }
+  td.good  { color: #76b7b2; font-weight: 600; }
+  td.warn  { color: #f28e2b; }
+  td.bad   { color: #e15759; }
+
+  .step-grid {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 6px 14px;
+    margin: 16px 0 24px;
+    align-items: start;
+  }
+  .step-num {
+    background: #4e79a7;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  .step-body { font-size: 0.91rem; color: #bbb; padding-top: 4px; }
+  .step-body strong { color: #e0e0e0; }
+
+  .quad-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .quad {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 6px;
+    padding: 14px;
+    font-size: 0.85rem;
+  }
+  .quad .qhead { font-weight: 700; color: #fff; margin-bottom: 6px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .quad .qsub  { color: #888; font-size: 0.78rem; margin-bottom: 8px; }
+  .quad .qval  { font-size: 0.88rem; }
+  .quad.pos { border-color: #76b7b2; }
+  .quad.neg { border-color: #e15759; }
+  .quad.neu { border-color: #555; }
+
+  hr { border: none; border-top: 1px solid #1e2130; margin: 40px 0; }
+
+  .bug {
+    background: #1f1820;
+    border: 1px solid #3a2a2a;
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin: 16px 0;
+    font-size: 0.88rem;
+  }
+  .bug .bug-head { color: #e15759; font-weight: 700; margin-bottom: 6px; }
+  .bug .bug-fix  { color: #76b7b2; font-weight: 700; margin-top: 10px; margin-bottom: 4px; }
+
+  .finding {
+    background: #141a1f;
+    border: 1px solid #2a3a3a;
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin: 16px 0;
+    font-size: 0.88rem;
+  }
+  .finding .fhead { color: #76b7b2; font-weight: 700; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Explained</h1>
+<div class="subtitle">Murray-Claude Feedback Algorithm · Phase 1 · Non-temporal / Spatial-only</div>
+
+<!-- ─── WHAT IS THE PROBLEM ─────────────────────────────────────────────── -->
+<h2>1 — What problem is this solving?</h2>
+
+<p>
+  Standard neural networks learn via <strong>backpropagation</strong>: a central
+  optimiser computes the exact error contribution of every single weight in the
+  network, then adjusts all of them at once. It works, but it has a fundamental
+  problem — <strong>it is not how brains work</strong>.
+</p>
+<p>
+  A biological synapse has no way to receive a gradient signal from a loss
+  function. It only knows what its immediate neighbours are doing: did the neuron
+  before me fire? Did the neuron after me fire? Is there a reward chemical in
+  my vicinity right now?
+</p>
+
+<div class="callout">
+  <strong>The goal of mcfeedback:</strong> build a network that learns using only
+  local signals — no synapse ever sees a gradient, knows the global loss, or
+  knows what any non-connected neuron is doing.
+</div>
+
+<!-- ─── THE KEY IDEAS ─────────────────────────────────────────────────── -->
+<h2>2 — The three key ideas</h2>
+
+<h3>2.1 Eligibility traces (flagging)</h3>
+<p>
+  Each synapse watches its two neurons and raises a <strong>flag</strong> when
+  they show correlated activity. The flag is a number called the
+  <strong>eligibility trace</strong>. No weight change happens yet — the synapse
+  is only marking itself as a candidate for reinforcement.
+</p>
+
+<div class="quad-grid">
+  <div class="quad pos">
+    <div class="qhead">Co-activation</div>
+    <div class="qsub">pre fires + post fires</div>
+    <div class="qval">→ <strong style="color:#76b7b2">positive trace</strong><br>These two neurons are working together.</div>
+  </div>
+  <div class="quad neg">
+    <div class="qhead">Mismatch</div>
+    <div class="qsub">one fires, the other doesn't</div>
+    <div class="qval">→ <strong style="color:#e15759">negative trace</strong><br>This connection is producing incorrect activations.</div>
+  </div>
+  <div class="quad pos">
+    <div class="qhead">Co-silence (active area)</div>
+    <div class="qsub">both silent + high ambient field</div>
+    <div class="qval">→ <strong style="color:#76b7b2">positive trace</strong><br>Both are suppressed in a busy neighbourhood — meaningful silence.</div>
+  </div>
+  <div class="quad neu">
+    <div class="qhead">Irrelevant silence</div>
+    <div class="qsub">both silent + quiet area</div>
+    <div class="qval">→ <strong style="color:#888">zero</strong><br>Nothing happening here. Not worth flagging.</div>
+  </div>
+</div>
+
+<h3>2.2 Chemical diffusion (the reward gate)</h3>
+<p>
+  The trace alone does nothing. Weight changes only happen when a
+  <strong>modulatory neuron</strong> releases a chemical signal. These neurons
+  act like the brain's dopamine system: they broadcast "good" or "bad" to
+  everything in their spatial neighbourhood.
+</p>
+<p>
+  After every forward pass, the network compares its output to the target.
+  If the output was correct, modulatory neurons release <strong>positive
+  chemical</strong> (reward). If wrong, <strong>negative chemical</strong>
+  (punishment). The chemical spreads with a spatial falloff — synapses close
+  to a modulatory neuron feel it strongly; distant synapses feel it weakly.
+</p>
+
+<div class="callout orange">
+  Weight update = <code>eligibilityTrace × chemicalLevel × learningRate</code><br><br>
+  Positive trace + positive chemical → weight grows (reinforce)<br>
+  Negative trace + positive chemical → weight shrinks (suppress the mismatch)<br>
+  Any trace + zero chemical → nothing changes (no reward = no learning)
+</div>
+
+<h3>2.3 Dampening filters</h3>
+<p>
+  Not every flag deserves equal weight. Three local filters reduce noise:
+</p>
+<ul>
+  <li>
+    <strong>Activity history dampening</strong> — synapses that rarely participate
+    are unreliable. Low history → dampened. Built up over many steps.
+  </li>
+  <li>
+    <strong>Information dampening</strong> — a neuron that always fires (or never
+    fires) carries no information. The trace is scaled by
+    <code>4 × fireRate × (1 − fireRate)</code>: an inverted-U that peaks at
+    fireRate = 0.5 and approaches zero at the extremes.
+  </li>
+  <li>
+    <strong>Ambient relevance dampening</strong> — silence is only meaningful in
+    a busy neighbourhood. A silent neuron surrounded by other silent neurons is
+    irrelevant; surrounded by active ones, its silence is significant.
+  </li>
+</ul>
+
+<!-- ─── THE STEP ──────────────────────────────────────────────────────── -->
+<h2>3 — One training step, in order</h2>
+
+<div class="step-grid">
+  <div class="step-num">1</div>
+  <div class="step-body"><strong>Clamp inputs.</strong> Input neurons are forced to the values in the current training pattern. They do not compute — they just hold.</div>
+
+  <div class="step-num">2</div>
+  <div class="step-body"><strong>Forward pass.</strong> Each synapse multiplies its pre-synaptic neuron's output by its weight and adds the result to the post-synaptic accumulator. Then each non-input neuron fires if its accumulator ≥ its threshold (binary step function).</div>
+
+  <div class="step-num">3</div>
+  <div class="step-body"><strong>Ambient field.</strong> Each neuron sums the outputs of its spatial neighbours, weighted by inverse distance. This gives a local "busyness" score used by the co-silence quadrant and dampening.</div>
+
+  <div class="step-num">4</div>
+  <div class="step-body"><strong>Flagging.</strong> Every synapse inspects its pre and post neuron states and computes a raw eligibility trace using the four-quadrant rule. Activity history is updated here — from the raw trace, before dampening erases it.</div>
+
+  <div class="step-num">5</div>
+  <div class="step-body"><strong>Dampening.</strong> The raw trace is multiplied by the three dampening factors. Synapses that pass all three filters keep their full trace; others are reduced or zeroed.</div>
+
+  <div class="step-num">6</div>
+  <div class="step-body"><strong>Reward.</strong> Output neurons are compared to the target. The reward signal maps accuracy to [−1, +1]. Modulatory neurons fire based on this signal.</div>
+
+  <div class="step-num">7</div>
+  <div class="step-body"><strong>Chemical diffusion.</strong> Each modulatory neuron that fired spreads chemical to nearby synapses, falling off with distance. Only synapses within the diffusion radius receive any chemical.</div>
+
+  <div class="step-num">8</div>
+  <div class="step-body"><strong>Weight update.</strong> <code>weight += trace × chemical × learningRate</code>, with the delta clamped and the final weight clamped to ±maxWeightMagnitude. Weight also decays slightly each step — synapses must be continuously earned.</div>
+
+  <div class="step-num">9</div>
+  <div class="step-body"><strong>Homeostasis.</strong> Each neuron tracks its long-run fire rate. If it fires too often, its threshold rises; too rarely, it falls. This self-regulation keeps the network from saturating or going silent.</div>
+</div>
+
+<!-- ─── DATA STRUCTURES ───────────────────────────────────────────────── -->
+<h2>4 — Data layout</h2>
+<p>
+  The architecture has three tiers. The key design principle: <strong>synapses
+  are primary</strong>. All learning loops iterate the flat synapse array.
+  Neurons are lookup tables that synapses read from.
+</p>
+
+<div class="diagram">
+<span class="hl">Tier 1 — Neuron position</span>  (set once, never changes)
+  id, x, y, z, type, clusterId, neighbourIds[]
+
+<span class="hl2">Tier 2 — Neuron state</span>  (updated every step)
+  output, firedThisCycle, fireRate, threshold, ambientField
+
+<span class="hl3">Tier 3 — Synapse</span>  (the core — all learning lives here)
+  from, to, weight, eligibilityTrace, activityHistory, chemicalLevel
+
+<span class="hl">Network</span>
+  neurons: Map&lt;id → Tier1&gt;
+  neuronState: Map&lt;id → Tier2&gt;
+  synapses: Synapse[]   ← flat array, iterated in every step
+  config: Object
+</div>
+
+<!-- ─── EXPERIMENT ─────────────────────────────────────────────────────── -->
+<h2>5 — Experiment 001: pattern association</h2>
+
+<p>
+  Two clusters of 30 neurons each. Cluster A receives inputs; Cluster B should
+  produce corresponding outputs. The task: learn 4 binary inversions.
+</p>
+
+<div class="diagram">
+Input (Cluster A)   →   Target (Cluster B)
+<span class="hl">[1, 0, 1, 0, 1]</span>   →   <span class="hl3">[0, 1, 0, 1, 0]</span>
+<span class="hl">[1, 1, 0, 0, 0]</span>   →   <span class="hl3">[0, 0, 1, 1, 1]</span>
+<span class="hl">[1, 0, 0, 0, 1]</span>   →   <span class="hl3">[0, 1, 1, 1, 0]</span>
+<span class="hl">[0, 1, 0, 1, 0]</span>   →   <span class="hl3">[1, 0, 1, 0, 1]</span>
+</div>
+
+<p>
+  The same experiment is run four times with different features enabled, to
+  measure each component's contribution in isolation:
+</p>
+
+<table>
+  <tr><th>Condition</th><th>Ambient field</th><th>Dampening</th><th>Chemical spread</th></tr>
+  <tr><td>Baseline</td><td class="bad">off</td><td class="bad">off</td><td class="warn">global (uniform)</td></tr>
+  <tr><td>Ambient only</td><td class="good">on</td><td class="bad">off</td><td class="warn">global</td></tr>
+  <tr><td>Dampening only</td><td class="bad">off</td><td class="good">on</td><td class="warn">global</td></tr>
+  <tr><td>Full model</td><td class="good">on</td><td class="good">on</td><td class="good">local (spatial falloff)</td></tr>
+</table>
+
+<!-- ─── BUGS ──────────────────────────────────────────────────────────── -->
+<h2>6 — Bugs found during implementation</h2>
+
+<div class="bug">
+  <div class="bug-head">Bug 1 — Activity history deadlock</div>
+  <code>activityHistory</code> initialises to 0. <code>activityHistoryDampening(0)</code>
+  returns 0. So on step 1, every eligibility trace is multiplied by 0 — all traces
+  become zero. With zero trace, <code>participated = 0</code>, so activity history
+  stays 0 forever. Weights never move. The network is permanently stuck from the
+  first step.
+  <div class="bug-fix">Fix</div>
+  Move <code>updateActivityHistory</code> to between flagging and dampening (step 4.5),
+  so it records the raw trace before dampening erases it. Now history builds from
+  the first step and dampening can progressively take effect.
+</div>
+
+<div class="bug">
+  <div class="bug-head">Bug 2 — Linear falloff returns zero for distance &gt; 1</div>
+  The falloff formula was <code>Math.max(0, 1 − distance)</code>.
+  For any synapse more than 1 spatial unit from a modulatory neuron, this returns 0.
+  The "global reward" baseline conditions used radius = 1000 with this formula — so
+  every synapse received zero chemical. The full model's radius = 5 also failed to
+  reach inter-cluster synapses at distance ≈ 11.
+  <div class="bug-fix">Fix</div>
+  Normalise: <code>Math.max(0, 1 − distance / radius)</code>. Also added a
+  <code>'constant'</code> falloff mode (returns 1 regardless of distance) for
+  global-reward conditions.
+</div>
+
+<div class="bug">
+  <div class="bug-head">Bug 3 — Inter-cluster connectivity too sparse for local learning</div>
+  With <code>interClusterConnectionProb = 0.1</code> and 5 input / 5 output neurons,
+  only ~2 direct input→output synapses exist. Three input neurons had zero direct
+  output connections. The signal had to travel 3+ hops through random intermediary
+  neurons. Local learning rules have no mechanism for multi-hop credit assignment
+  without global error signals — which is exactly what this architecture avoids.
+  <div class="bug-fix">Fix</div>
+  Increased <code>interClusterConnectionProb</code> to 0.5, giving ~12 direct
+  input→output connections and reliable 1-hop paths for all input neurons.
+</div>
+
+<!-- ─── FINDINGS ──────────────────────────────────────────────────────── -->
+<h2>7 — Key findings from the first run</h2>
+
+<div class="finding">
+  <div class="fhead">Finding 1 — Fire rate runaway without weight decay</div>
+  The "always fire all output neurons" strategy achieves ~55% accuracy on these
+  patterns — above the 50% baseline for positive reward. This gives a persistent
+  positive reward signal every single step. Weights accumulate until they hit
+  the maximum, neurons fire constantly, homeostatic threshold regulation cannot
+  keep up. The network saturates in a trivial attractor.
+  <br><br>
+  Fix: <strong>weight decay</strong> (<code>weightDecay = 0.005</code>). Synapses
+  must be continuously reinforced to maintain their strength. Random co-activation
+  alone is no longer enough to sustain high weights.
+</div>
+
+<div class="finding">
+  <div class="fhead">Finding 2 — Dampening and homeostasis fight each other</div>
+  The <code>informationDampening</code> inverted-U peaks at <code>fireRate = 0.5</code>.
+  But <code>targetFireRate = 0.2</code> — the homeostatic target. At fireRate = 0.2,
+  dampening gives <code>4 × 0.2 × 0.8 = 0.64</code>: a 36% penalty on every trace,
+  precisely for neurons behaving as intended. The two mechanisms are working against
+  each other. This is a parameter design issue to resolve in Phase 2.
+</div>
+
+<div class="finding">
+  <div class="fhead">Finding 3 — Ambient field alone is the most effective component</div>
+  The "Ambient only" condition (ambient field on, no dampening, global reward)
+  achieved and sustained <strong>80% accuracy</strong> from episode 200 onward.
+  The full model (all features enabled) was less stable. This counterintuitive
+  result reveals that the dampening parameters need recalibration before the full
+  model can outperform simpler conditions. The ambient field's co-silence quadrant
+  — rewarding meaningful silence in active neighbourhoods — appears to be the
+  single most valuable addition over baseline Hebbian learning.
+</div>
+
+<!-- ─── WHAT IS NEXT ───────────────────────────────────────────────────── -->
+<h2>8 — What is next (Phase 2)</h2>
+<ul>
+  <li>Recalibrate <code>informationDampening</code> so its peak aligns with <code>targetFireRate</code>, not 0.5.</li>
+  <li>Investigate the bimodal threshold drift: neurons splitting into always-on and always-off populations instead of settling near the target rate.</li>
+  <li>Add temporal structure: refractory periods, spike timing, cycling. The architecture is designed for this but Phase 1 is spatial-only.</li>
+  <li>Let modulatory neurons compute their own reward from local inputs, removing the external reward signal.</li>
+  <li>Scale up: more clusters, more patterns, larger networks.</li>
+</ul>
+
+<hr>
+
+<div class="callout green" style="font-size:0.83rem; color:#888;">
+  <strong style="color:#76b7b2">mcfeedback Phase 1</strong> — Murray-Claude Feedback Algorithm ·
+  Node.js · ES modules · No external ML frameworks ·
+  All learning local · No synapse ever sees a gradient.
+</div>
+
+</body>
+</html>

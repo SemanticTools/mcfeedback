@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 10: Direction-Consistent Flag Gating</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #161920; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.red    { border-color: #3a2222; background: #1a1215; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .verdict.blue   { border-color: #1e2a3a; background: #111520; }
+  .verdict.green  { border-color: #1e3a22; background: #111a13; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .param-change { font-family: monospace; font-size: 0.82rem; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 5px; padding: 12px 16px; margin-bottom: 20px; color: #aaa; line-height: 1.9; }
+  .param-change .new { color: #76b7b2; }
+  .param-change .removed { color: #e15759; text-decoration: line-through; }
+  .param-change .note { color: #555; }
+  @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 10: Direction-Consistent Flag Gating</h1>
+<div class="subtitle">
+  experiment-010.mjs &nbsp;·&nbsp;
+  N = 10 seeds &nbsp;·&nbsp;
+  Seeds: 42, 137, 271, 314, 500, 618, 777, 888, 999, 1234 &nbsp;·&nbsp;
+  1000 training episodes &nbsp;·&nbsp;
+  Frozen-weight evaluation &nbsp;·&nbsp;
+  Random chance = 50%
+</div>
+
+<!-- Parameter block -->
+<div class="param-change">
+  <strong style="color:#fff">Changes from experiment-004 — replacing the flag accumulation mechanism:</strong><br>
+  <span class="new">consistencyThreshold &nbsp;5</span> &nbsp;<span class="note">— require 5 consecutive same-sign traces before growth begins</span><br>
+  <span class="new">flagStrengthGain &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.15</span> &nbsp;<span class="note">— slower growth per consistent turn (was <span class="removed">0.3</span>)</span><br>
+  <span class="new">flagDecayOnFlip &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.5</span> &nbsp;<span class="note">— sharp flagStrength penalty when direction reverses</span><br>
+  <span class="new">flagDecayRate &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.9</span> &nbsp;<span class="note">— passive decay on silence (was <span class="removed">0.7</span>)</span><br>
+  flagStrengthThreshold &nbsp;0.5 &nbsp;<span class="note">(unchanged — gate still at |flagStrength| ≥ 0.5)</span><br>
+  <span class="note">Silence is neutral: streak counter and lastTraceSign are preserved when trace = 0.</span>
+</div>
+
+<!-- How it works -->
+<div class="card" style="padding:16px 24px; margin-bottom:20px; font-size:0.85rem; line-height:1.8; color:#aaa">
+  <strong style="color:#fff">Mechanism:</strong> each synapse now tracks <code>lastTraceSign</code> (+1/−1/0) and
+  <code>consecutiveConsistent</code> (same-sign streak count). A direction flip resets the streak to 0 and
+  multiplies flagStrength by 0.5. Silence preserves the streak. Only after 5 consecutive same-sign traces
+  does flagStrength begin growing at +0.15/turn toward 1.0. This should require ~5+ turns of consistent
+  directional signal — far harder to satisfy than exp-004's 2-turn latch.
+</div>
+
+<!-- Verdict -->
+<div class="verdict red">
+  <strong>Verdict: direction-consistent gating is significantly worse — p&lt;0.05 for Full model.</strong><br>
+  Full model dropped to 49.0% mean (vs 53.0% in experiment-004, vs 55% Baseline).
+  The stricter consistency requirement throttled learning for most seeds without providing
+  meaningful discrimination — 8 out of 10 seeds remain stuck at 45%.
+  Only seeds 42 and 1234 escaped (65% and 55%), and notably, those are the same seeds
+  that show lower ep-500 latch rates (68–71% vs 86–93% for the others).
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#4e79a7"></div>Baseline</div>
+  <div class="leg"><div class="dot" style="background:#f28e2b"></div>Ambient only</div>
+  <div class="leg"><div class="dot" style="background:#e15759"></div>Dampening only</div>
+  <div class="leg"><div class="dot" style="background:#76b7b2"></div>Full model</div>
+</div>
+
+<h2>1 — Accuracy distribution across seeds</h2>
+<div class="card">
+  <canvas id="stripChart" height="320"></canvas>
+  <p class="meta">Each dot = one seed. Horizontal line = mean. Full model has one outlier at 65% (seed 42) with the rest collapsing to 45–55%. Baseline and Dampening only perfectly locked at 55% — zero variance.</p>
+</div>
+
+<h2>2 — Mean ± 1 std</h2>
+<div class="card">
+  <canvas id="barChart" height="260"></canvas>
+  <p class="meta">Error bars show ±1 standard deviation. Full model (49.0% ± 7.0%) is significantly below Baseline (55.0% ± 0.0%). The consistency threshold made learning harder without making it more targeted.</p>
+</div>
+
+<div class="two-col">
+  <div>
+    <h2>3 — Paired t-tests vs Baseline</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Result</th></tr>
+      <tr>
+        <td>Ambient only vs Baseline</td>
+        <td style="color:#e15759">−5.0%</td>
+        <td style="color:#aaa">−1.4639</td>
+        <td style="color:#aaa">0.1308</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Dampening only vs Baseline</td>
+        <td style="color:#aaa">+0.0%</td>
+        <td style="color:#555">NaN</td>
+        <td style="color:#555">—</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Full model vs Baseline</td>
+        <td style="color:#e15759">−6.0%</td>
+        <td style="color:#aaa">−2.7136</td>
+        <td style="color:#aaa">0.0176</td>
+        <td style="color:#e15759;font-weight:600">* p&lt;0.05</td>
+      </tr>
+    </table>
+    </div>
+    <p class="meta" style="margin-top:8px">Two-tailed paired t-test, df=9. Dampening only t-test is undefined (zero variance in both conditions). Baseline and Dampening only are identical across all seeds at 55%.</p>
+  </div>
+
+  <div>
+    <h2>4 — Raw data (all seeds)</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Seed</th><th>Baseline</th><th>Ambient</th><th>Dampening</th><th>Full</th></tr>
+      <tr><td style="color:#555">42</td>   <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#76b7b2">65%</td></tr>
+      <tr><td style="color:#555">137</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">271</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">314</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">500</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">35%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">618</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">777</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">888</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">25%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td></tr>
+      <tr><td style="color:#555">999</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#e15759">45%</td></tr>
+      <tr><td style="color:#555">1234</td> <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td>  <td style="color:#888">55%</td></tr>
+      <tr style="border-top:2px solid #2a2d3a">
+        <td style="color:#aaa;font-weight:600">Mean</td>
+        <td style="color:#fff;font-weight:600">55.0%</td>
+        <td style="color:#fff;font-weight:600">50.0%</td>
+        <td style="color:#fff;font-weight:600">55.0%</td>
+        <td style="color:#fff;font-weight:600">49.0%</td>
+      </tr>
+      <tr>
+        <td style="color:#555">Std</td>
+        <td style="color:#555">±0.0%</td>
+        <td style="color:#555">±10.8%</td>
+        <td style="color:#555">±0.0%</td>
+        <td style="color:#555">±7.0%</td>
+      </tr>
+    </table>
+    </div>
+  </div>
+</div>
+
+<h2>5 — Per-pattern accuracy (mean across seeds)</h2>
+<div class="card">
+  <canvas id="patternChart" height="260"></canvas>
+  <p class="meta">Full model gains on P1 (58%) but loses on P2 (44%) and P4 (44%). P2 and P4 being below chance indicates a systematic bias — the network is learning the wrong mapping for those patterns.</p>
+</div>
+
+<h2>6 — Ep-500 flag latch diagnostic (Full model, output-bound synapses)</h2>
+<div class="card">
+  <canvas id="latchChart" height="260"></canvas>
+  <p class="meta">
+    Partial success: the two best-performing seeds (42: 65%, 1234: 55%) show noticeably lower latch rates
+    at ep 500 (68–71%) while poor seeds latch at 86–93%. Compared to exp-008 where latch was
+    uniformly 87–95% across ALL seeds, the direction-consistent mechanism does introduce some discrimination.
+    However, even 68% latched is still far too high — most synapses are finding 5 consistent
+    turns quickly, meaning the task's inherent activity structure is providing enough same-sign
+    streaks without the signal being genuinely meaningful.
+  </p>
+</div>
+
+<div class="card" style="padding:0">
+<table>
+  <tr><th>Seed</th><th>Latched / Total</th><th>Latch %</th><th>Mean |f|</th><th>Final Acc</th></tr>
+  <tr><td style="color:#555">42</td>   <td>111 / 162</td> <td style="color:#76b7b2">68.5%</td> <td>0.685</td> <td style="color:#76b7b2">65%</td></tr>
+  <tr><td style="color:#555">137</td>  <td>152 / 166</td> <td style="color:#e15759">91.6%</td> <td>0.916</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">271</td>  <td>143 / 157</td> <td style="color:#e15759">91.1%</td> <td>0.911</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">314</td>  <td>122 / 141</td> <td style="color:#e15759">86.5%</td> <td>0.731</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">500</td>  <td>142 / 153</td> <td style="color:#e15759">92.8%</td> <td>0.928</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">618</td>  <td>158 / 171</td> <td style="color:#e15759">92.4%</td> <td>0.924</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">777</td>  <td>155 / 168</td> <td style="color:#e15759">92.3%</td> <td>0.923</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">888</td>  <td>140 / 155</td> <td style="color:#e15759">90.3%</td> <td>0.903</td> <td style="color:#888">55%</td></tr>
+  <tr><td style="color:#555">999</td>  <td>140 / 151</td> <td style="color:#e15759">92.7%</td> <td>0.927</td> <td style="color:#e15759">45%</td></tr>
+  <tr><td style="color:#555">1234</td> <td>107 / 150</td> <td style="color:#76b7b2">71.3%</td> <td>0.688</td> <td style="color:#888">55%</td></tr>
+</table>
+</div>
+
+<div class="verdict yellow">
+  <strong>Why flags still saturate at 86–93%:</strong><br>
+  The inversion task produces alternating co-activation and mismatch signals on output-bound synapses
+  as the 4 patterns cycle — but within any single pattern, the same synapse tends to receive the
+  same-sign trace consistently for many consecutive steps. The 5-turn streak requirement is met before
+  the network has seen enough pattern diversity to create genuine direction reversals.
+  The mechanism correctly identified that seeds 42 and 1234 have some structural property that limits
+  saturation (fewer output-bound synapses, or more pattern-driven flips), but for most seeds the
+  task dynamics still satisfy the streak requirement trivially.
+</div>
+
+<div class="verdict blue">
+  <strong>Progress across iterations (Full model mean):</strong><br>
+  Iter 1 (original):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;45.5% &nbsp;max 55%<br>
+  Iter 3 (flipped signs):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;46.0% &nbsp;max 55%<br>
+  Iter 4 (flag gate):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;53.0% &nbsp;max 65% &nbsp;← best mean so far<br>
+  Iter 5 (flag + squared reward):&nbsp;&nbsp;45.0% &nbsp;max 65%<br>
+  Iter 6 (flag + anneal):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;51.0% &nbsp;max 65%<br>
+  Iter 9 (flag + warmup):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;45.5% &nbsp;max 55%<br>
+  Iter 10 (direction-consistent): &nbsp;49.0% &nbsp;max 65% &nbsp;← partial signal<br><br>
+  <strong>Pattern:</strong> every modification to the flag mechanism since exp-004 has degraded mean performance.
+  Exp-004 remains the peak. The flag saturation problem is real, but flag-based fixes seem to
+  introduce their own problems (over-restriction, over-permissiveness).<br><br>
+  <strong>Hypothesis for next iteration:</strong> the bottleneck may not be in the flag gate at all.
+  With Baseline at 55% (no ambient, no dampening, global chemical), the reward signal and weight
+  update pathway may be fundamentally limited. Consider examining <em>what</em> drives the 45% attractor —
+  is it a fixed-output weight pattern, and if so, what breaks it in the ~2–3 seeds that escape?
+</div>
+
+<script>
+const COLORS = ["#4e79a7","#f28e2b","#e15759","#76b7b2"];
+const LABELS = ["Baseline","Ambient only","Dampening only","Full model"];
+
+const stripData = [
+  { label: "Baseline",       color: "#4e79a7", values: [55,55,55,55,55,55,55,55,55,55], mean: 55.0, std: 0.0 },
+  { label: "Ambient only",   color: "#f28e2b", values: [55,55,55,55,35,55,55,25,55,55], mean: 50.0, std: 10.8 },
+  { label: "Dampening only", color: "#e15759", values: [55,55,55,55,55,55,55,55,55,55], mean: 55.0, std: 0.0 },
+  { label: "Full model",     color: "#76b7b2", values: [65,45,45,45,45,45,45,55,45,55], mean: 49.0, std: 7.0 },
+];
+
+const patternChartData = {
+  labels: ["P1","P2","P3","P4"],
+  datasets: [
+    { label: "Baseline",       data: [40,62,60,58], backgroundColor: "#4e79a7cc", borderColor: "#4e79a7", borderWidth: 1 },
+    { label: "Ambient only",   data: [42,54,50,54], backgroundColor: "#f28e2bcc", borderColor: "#f28e2b", borderWidth: 1 },
+    { label: "Dampening only", data: [40,60,60,60], backgroundColor: "#e15759cc", borderColor: "#e15759", borderWidth: 1 },
+    { label: "Full model",     data: [58,44,50,44], backgroundColor: "#76b7b2cc", borderColor: "#76b7b2", borderWidth: 1 },
+  ]
+};
+
+// ── Strip chart ───────────────────────────────────────────────────────────
+const scatterSets = stripData.map((d, ci) => ({
+  type: 'scatter', label: d.label,
+  data: d.values.map(v => ({ x: ci + 1 + (Math.random()-0.5)*0.18, y: v })),
+  backgroundColor: COLORS[ci] + 'bb', borderColor: COLORS[ci],
+  borderWidth: 1, pointRadius: 6, pointHoverRadius: 8, showLine: false,
+}));
+const meanSets = stripData.map((d, ci) => ({
+  type: 'scatter', label: '_mean_' + ci,
+  data: [{ x: ci + 0.7, y: d.mean }, { x: ci + 1.3, y: d.mean }],
+  showLine: true, borderColor: COLORS[ci], borderWidth: 3, pointRadius: 0, fill: false,
+}));
+
+new Chart(document.getElementById('stripChart').getContext('2d'), {
+  type: 'scatter',
+  data: { datasets: [...scatterSets, ...meanSets] },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { filter: i => !i.dataset.label.startsWith('_'), callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y + '%' } },
+    },
+    scales: {
+      x: { min: 0.3, max: 4.7, ticks: { color: '#aaa', callback: v => { const i = Math.round(v)-1; return i>=0&&i<4?LABELS[i]:''; }, stepSize:1, maxTicksLimit:6 }, grid: { color: '#1a1d27' } },
+      y: { min: 15, max: 75, title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 11 } }, ticks: { color: '#555', callback: v => v+'%' }, grid: { color: ctx => ctx.tick.value===50?'#333':'#1e2130', lineWidth: ctx => ctx.tick.value===50?2:1 } }
+    }
+  }
+});
+
+// ── Bar chart ─────────────────────────────────────────────────────────────
+const barPlugin = {
+  id: 'errorbars',
+  afterDatasetDraw(chart) {
+    const { ctx, scales: { x, y } } = chart;
+    chart.data.datasets.forEach((ds, di) => {
+      if (!ds._stds) return;
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const std = ds._stds[i]; if (std==null) return;
+        const cx=bar.x, w=6, top=y.getPixelForValue(ds.data[i]+std), bottom=y.getPixelForValue(ds.data[i]-std);
+        ctx.save(); ctx.strokeStyle=ds.borderColor[i]||ds.borderColor; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(cx,top); ctx.lineTo(cx,bottom); ctx.moveTo(cx-w,top); ctx.lineTo(cx+w,top); ctx.moveTo(cx-w,bottom); ctx.lineTo(cx+w,bottom); ctx.stroke(); ctx.restore();
+      });
+    });
+  }
+};
+new Chart(document.getElementById('barChart').getContext('2d'), {
+  type: 'bar', plugins: [barPlugin],
+  data: { labels: LABELS, datasets: [{ label:'Mean accuracy', data: stripData.map(d=>d.mean), _stds: stripData.map(d=>d.std), backgroundColor: COLORS.map(c=>c+'88'), borderColor: COLORS, borderWidth:2, borderRadius:4 }] },
+  options: {
+    animation: false, responsive: true,
+    plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>' Mean: '+ctx.parsed.y.toFixed(1)+'%'}} },
+    scales: {
+      x: { ticks:{color:'#aaa'}, grid:{color:'#1a1d27'} },
+      y: { min:30, max:70, title:{display:true,text:'Mean accuracy (%)',color:'#555',font:{size:11}}, ticks:{color:'#555',callback:v=>v+'%'}, grid:{color:ctx=>ctx.tick.value===50?'#333':'#1e2130',lineWidth:ctx=>ctx.tick.value===50?2:1} }
+    }
+  }
+});
+
+// ── Per-pattern bar ───────────────────────────────────────────────────────
+new Chart(document.getElementById('patternChart'), {
+  type: 'bar', data: patternChartData,
+  options: {
+    animation: false, responsive: true,
+    plugins: { legend:{labels:{color:'#aaa',font:{size:11},boxWidth:12}}, tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}} },
+    scales: {
+      x: { ticks:{color:'#aaa'}, grid:{color:'#1a1d27'} },
+      y: { min:25, max:75, title:{display:true,text:'Mean accuracy (%)',color:'#555',font:{size:11}}, ticks:{color:'#555',callback:v=>v+'%'}, grid:{color:ctx=>ctx.tick.value===50?'#333':'#1e2130',lineWidth:ctx=>ctx.tick.value===50?2:1} }
+    }
+  }
+});
+
+// ── Ep-500 latch chart ────────────────────────────────────────────────────
+const SEEDS      = [42, 137, 271, 314, 500, 618, 777, 888, 999, 1234];
+const latchPcts  = [68.5, 91.6, 91.1, 86.5, 92.8, 92.4, 92.3, 90.3, 92.7, 71.3];
+const finalAccs  = [65,   45,   45,   45,   45,   45,   45,   55,   45,   55  ];
+const latchColors = latchPcts.map((p, i) => p < 80 ? '#76b7b2cc' : '#e15759cc');
+const latchBorders = latchPcts.map((p, i) => p < 80 ? '#76b7b2' : '#e15759');
+
+new Chart(document.getElementById('latchChart'), {
+  type: 'bar',
+  data: {
+    labels: SEEDS.map((s, i) => `Seed ${s}\n(${finalAccs[i]}%)`),
+    datasets: [{
+      label: 'Latched % at ep 500',
+      data: latchPcts,
+      backgroundColor: latchColors,
+      borderColor: latchBorders,
+      borderWidth: 2,
+      borderRadius: 3,
+    }]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` Latched: ${ctx.parsed.y}% (final acc: ${finalAccs[ctx.dataIndex]}%)` } }
+    },
+    scales: {
+      x: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#1a1d27' } },
+      y: {
+        min: 50, max: 100,
+        title: { display: true, text: '% output-bound synapses latched', color: '#555', font: { size: 11 } },
+        ticks: { color: '#555', callback: v => v + '%' },
+        grid: { color: ctx => ctx.tick.value === 90 ? '#333' : '#1e2130', lineWidth: ctx => ctx.tick.value === 90 ? 1 : 1 }
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>

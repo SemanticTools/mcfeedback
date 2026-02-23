@@ -1,0 +1,513 @@
+mcfeedback — Post-Iteration-18 Analysis
+Murray & Claude, February 2026
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+After 18 experiments, the network has not learned to discriminate between input
+patterns in any stable, reproducible way. The best result is seed-level transient
+discrimination reaching 75% accuracy at episode 1000 that collapses by episode
+5000. The Baseline condition of experiment 018 shows 56% mean with genuine varying
+outputs across seeds, but this is not robust learning — it is partial discrimination
+that depends on the absence of two of the three Full model mechanisms.
+
+The project has, however, produced a precise understanding of why learning fails and
+what needs to change. The failures are specific and diagnosable, not vague. The path
+forward is clearer than it has ever been.
+
+
+WHAT WE SET OUT TO DO
+---------------------
+Build a biologically-plausible neural network that learns a set of pattern
+associations using only local signals: eligibility traces (Hebbian co-firing
+detection), chemical diffusion from modulatory neurons (reward broadcast), and
+spatial dampening filters (noise suppression). No backpropagation. No global
+gradients. The task: learn 4 binary input→output mappings with 5-bit patterns.
+
+Architecture:
+  - 2 clusters × 30 neurons = 60 neurons total
+  - Cluster 0: 5 input, 2 modulatory, 23 regular
+  - Cluster 1: 5 output, 2 modulatory, 23 regular
+  - Connectivity: 60% intra-cluster, 50% inter-cluster, random
+  - Single forward propagation pass per episode
+  - 10 random seeds per experiment for statistical coverage
+
+Random chance is 50%. The task requires the network to output a different 5-bit
+vector for each of 4 distinct input patterns — genuine input discrimination.
+
+
+PHASE 1: GLOBAL BROADCAST REWARD (Iterations 1–15)
+===================================================
+
+What happened
+-------------
+Eleven experiments tuned mechanisms — eligibility flags, reward shaping, propagation
+cycles, frustration detection, hidden clusters — against the 55% accuracy ceiling
+reported for the best configuration (012b). One key finding emerged early and
+correctly: weight starvation was a bottleneck, and halving weight decay (iter 12)
+achieved 10/10 seeds at 55%. This appeared to be a major breakthrough.
+
+It was not.
+
+The false ceiling
+-----------------
+After iteration 15, a per-pattern diagnostic was added: record the actual output
+vector for each of the 4 input patterns and check whether they differ. The result
+was unambiguous: every seed in every "successful" experiment had been outputting the
+identical vector [11111] for all four inputs. The network had found the optimal
+constant output and locked in.
+
+The 55% accuracy is exact arithmetic:
+  [11111] vs P1 target [01010] = 40%
+  [11111] vs P2 target [00111] = 60%
+  [11111] vs P3 target [01110] = 60%
+  [11111] vs P4 target [10101] = 60%
+  Mean = 55%
+
+All of iterations 1–15 were measuring attractor stability, not learning. Mechanisms
+that "improved accuracy" were improving the network's ability to find and hold the
+optimal constant output. The 55% ceiling was not a learning boundary — it was the
+best achievable score with constant output on this particular pattern set.
+
+Why global reward cannot solve this
+------------------------------------
+The global modulatory broadcast collapses everything to one number: how accurate was
+the most recent pattern? This is the same number whether the output was pattern-
+specific or constant. A constant output that scores 55% average receives identically
+positive reward to a perfectly discriminating network that scores 55% average on
+the current pattern. The network cannot tell the difference. It rationally settles
+on the best constant output and has no incentive to do otherwise.
+
+This is not a parameter problem. It is a credit assignment impossibility: no amount
+of tuning flag strength, weight decay, reward shaping, hidden layers, or propagation
+cycles can make a scalar reward signal carry per-bit error information that was
+never encoded in it. Phase 1 was solving the wrong problem for 15 experiments.
+
+What phase 1 actually established (useful findings)
+----------------------------------------------------
+Despite the false ceiling, several findings are real and carry forward:
+
+1. Weight/decay balance: learning signal must exceed decay for the system to move.
+   Decay rate 0.0025 with lr=0.01 is viable. Higher decay starves weights; lower
+   decay (tried in iter 17) doesn't meaningfully help.
+
+2. The propagationCycles homeostasis bug: regulateThreshold() was running N times
+   per episode inside the loop. Fixed in the engine. Always run stat updates and
+   threshold regulation once per episode, outside the propagation loop.
+
+3. Propagation cycles don't help with this architecture: multi-hop signal through
+   random recurrent wiring adds noise, not structured intermediate representations.
+
+4. Hidden clusters don't help without better credit assignment: adding a third
+   cluster gives representational capacity that the learning rule cannot exploit.
+
+5. The four-condition (Baseline/Ambient/Dampening/Full) experimental structure is
+   valuable for isolating mechanism effects and should continue.
+
+
+PHASE 2: PER-BIT REWARD (Iterations 16–18)
+===========================================
+
+The insight
+-----------
+If the global reward scalar is the root cause, replace it with per-bit reward: each
+output neuron broadcasts its own correctness signal spatially, rather than routing
+everything through modulatory neurons. Correct fire → positive chemical. Wrong fire
+→ negative. Wrong silence → negative. This gives the network input-specific error
+information: when pattern P1 is presented and output bit 3 fires wrongly, only
+that bit's chemical signal is negative, and only synapses near that bit's spatial
+position receive the signal.
+
+Discoveries during implementation
+----------------------------------
+Three bugs/design choices had to be resolved before per-bit reward could function:
+
+  Bug 1 — Correct silence signal:
+    Initial implementation: correct silence (output=0, target=0) → +positive chemical.
+    Result: [00000] attractor. Cause: positive chemical × mismatch trace (active
+    pre, silent post) = negative delta = weakens input→output connections for
+    correctly-silent bits. This destroys discrimination capacity.
+    Fix: correct silence → zero chemical. No update on correct silence.
+
+  Bug 2 — Flag gate sign reversal:
+    The flag gate in updateWeight() replaces the signed eligibilityTrace with
+    always-positive flagStrength when flagStrengthThreshold > 0. For a mismatch
+    trace of -0.5 under negative chemical of -1, the intended delta is:
+      -0.5 × -1 × 0.01 = +0.005 (strengthen the pathway to fix wrong silence)
+    But the flag gate substitutes +flagStrength for -0.5:
+      +flagStrength × -1 × 0.01 = -0.01 (wrong direction, weakens the pathway)
+    Fix: flagStrengthThreshold: 0 to bypass the gate. Use raw eligibilityTrace.
+
+  Issue 3 — Homeostasis conflict:
+    targetFireRate=0.2. The per-bit reward wants output bit 2 (target fires 3/4
+    patterns) to fire 75% of training steps. Homeostasis says "you're above 20%,
+    raise threshold." Homeostasis wins — threshold rises faster than per-bit reward
+    can overcome. All high-frequency bits get suppressed.
+    Fix: fixedOutputThreshold=true — output neurons skip regulateThreshold().
+    Thresholds stay at initialThreshold=0.5. Hidden/modulatory retain homeostasis.
+
+With these three fixes, exploratory runs show transient discrimination: seed 314
+reached 75% accuracy at episode 1000, with distinct output vectors per input pattern
+([01110] for P1/P3, [00110] for P2/P4). Real learning, briefly.
+
+Experiment 16 (perBitReward + flagStrengthThreshold=0)
+-------------------------------------------------------
+Full model: 45.5%, all seeds [00000]. 2000 episodes.
+Weight decay (0.0025 × 4 steps = 0.010/cycle) beats the wrong-silence reward
+(+0.005/cycle for minority bits). Net negative → weights drain → [00000].
+
+Experiment 17 (weightDecay reduced 5× to 0.0005)
+-------------------------------------------------
+Full model: 46.0%, still [00000] at ep5000. 5000 episodes.
+At ep1000: diverse constant attractors ([11111], [10101], etc.) — some progress.
+At ep5000: all collapse back to [00000].
+Background sweep confirmed: original wd=0.0025 actually performs best (peak 60.5%,
+final 51.5%). Reducing decay does not help. Homeostasis identified as second root
+cause: bits 2/3 (k=3/4 targets) get suppressed by homeostasis even with reduced
+decay.
+
+Experiment 18 (fixedOutputThreshold=true)
+------------------------------------------
+Full model: 46.0%. Dampening only condition: 45.0% (uniform [00000]).
+Baseline (no dampening, constant chemical): 56.0% ± 8.8%. Genuine diversity.
+Per-pattern P2 at 74% mean across seeds. Seeds reach 65–75%.
+Paired t-test: Dampening vs Baseline p<0.01. Full model vs Baseline p=0.05.
+
+
+THE ACTUAL BLOCKER: DAMPENING ZEROES OUT LEARNING
+==================================================
+
+Reading dampening.mjs reveals the specific mechanism causing failure.
+
+combinedDampening() is three multiplied factors:
+
+  1. activityHistoryDampening: suppresses synapses with low recent participation.
+     activityHistory is a running average of |eligibilityTrace| > 0.
+     If history < activityHistoryMinimum (0.1): factor = history/0.1.
+
+  2. informationDampening: inverted-U on fire rate.
+     factor = 4 × fireRate × (1 - fireRate)
+     At fireRate=0.5: factor=1.0. At fireRate=0 or 1: factor=0.
+
+  3. ambientRelevanceDampening: for silent post-neurons (output=0):
+     if ambientField ≤ ambientThreshold: factor = 0. Completely zeroed.
+
+Under the [00000] attractor with per-bit reward:
+
+  - Output neurons never fire → fireRate → 0.
+  - informationDampening(0) = 4×0×1 = 0.
+  - ALL eligibility traces at input→output synapses are multiplied by 0.
+  - Weight update = 0 × chemical × lr = 0.
+  - No learning at all, regardless of chemical signal magnitude.
+
+  Additionally: ambientRelevanceDampening for silent post-neurons with low ambient
+  field → factor=0 independently.
+
+This is a self-locking mechanism. Once in [00000], dampening makes it impossible
+to learn out of it, because the very neurons that need to start firing (output
+neurons at fireRate=0) are the ones whose synapses get a zero dampening factor.
+The per-bit chemical signal can be as strong as it likes — it gets multiplied by
+zero before the weight update.
+
+The informationDampening function was designed for global reward where an always-
+silent neuron carries no information and shouldn't update. This reasoning is wrong
+for per-bit reward: an always-silent output neuron that SHOULD be firing is exactly
+the neuron that needs updating most urgently. The function actively prevents the
+escape from wrong attractors.
+
+
+WHAT WORKS (CONFIRMED POSITIVE FINDINGS)
+=========================================
+
+Per-bit reward design principle
+  Giving each output neuron its own correctness signal is the right architecture.
+  In exploratory runs, it produced genuine discrimination (75% peak, varying outputs
+  per input). The concept works when the three implementation bugs are fixed.
+
+The three required fixes (all necessary, none sufficient alone)
+  - correct_silence = 0: prevents destructive interaction with mismatch traces
+  - flagStrengthThreshold = 0: preserves sign of eligibilityTrace for weight update
+  - fixedOutputThreshold = true: removes homeostasis/reward conflict for outputs
+
+Weight decay balance
+  wd=0.0025 with lr=0.01 remains viable. The background sweep showed this is
+  actually the best performing setting (peak 60.5%). Don't reduce it further.
+
+Baseline condition with per-bit reward + fixes
+  56% mean, real diversity, P2 at 74%. Not stable robust learning, but the signal
+  is present. Something is working.
+
+The four-condition experimental structure
+  Cleanly isolates mechanism effects. The Baseline/Dampening conditions tell us
+  precisely which mechanisms are blocking what.
+
+Frozen-weight evaluation
+  Essential. Eval-during-learning produces misleading inflated scores and was
+  responsible for the iter-1 artifact. Always use post-training frozen eval.
+
+
+WHAT FAILS (CONFIRMED NEGATIVE FINDINGS)
+==========================================
+
+Global broadcast reward
+  Fundamentally cannot solve pattern discrimination. Any scalar reward signal
+  applied uniformly to all synapses treats correct and incorrect patterns
+  identically once the network settles on the best constant output. No amount of
+  mechanism tuning around a global reward can fix this. This approach is closed.
+
+Dampening as currently implemented
+  Zeroes out learning for neurons at fireRate=0 via informationDampening(). Self-
+  locking under any zero-output attractor. Incompatible with per-bit reward's need
+  to update silent neurons. The dampening design is correct for global reward;
+  it is wrong for per-bit reward.
+
+Propagation cycles (propagationCycles > 1)
+  Multi-hop signal through random recurrent wiring adds noise, not structure.
+  Tested in iter 10b and iter 13. Both times: worse or same. The regular (non-
+  input, non-output) neurons in this architecture do not form useful intermediate
+  representations because nothing guides them to do so.
+
+Hidden cluster (iter 14)
+  Adds representational capacity with no mechanism to use it. The learning rule
+  cannot route error signals to synapses in a third cluster. Result: unchanged
+  at 55% constant attractor. Hidden clusters require per-bit reward AND working
+  dampening to be exploitable.
+
+Direction-consistent flag gate (iter 10)
+  Reduced saturation from 90% to 68–93% but didn't improve accuracy. The flag
+  gate as designed is useful for stabilizing an already-learning network but cannot
+  bootstrap learning from a failed state.
+
+Weight decay tuning (iter 17 + background sweep)
+  Varying weight decay between 0.0025 and 0.0001 makes no meaningful difference.
+  The bottleneck is not the decay/signal balance — it's dampening zeroing the
+  signal before decay even matters.
+
+Provisional weights (iter 15)
+  33% revert rate caused effective 8× reduction in learning signal. Weight
+  starvation with no compensating benefit. The provisional mechanism needs a much
+  lower revert threshold or per-pattern evaluation before it's viable.
+
+Modulatory cycling (iter 15)
+  4× reduction in effective chemical broadcast per synapse. Causes weight
+  starvation in combination with other signal-reducing mechanisms. Not tested in
+  isolation — unknown if tolerable alone.
+
+Attractor analysis (not an experiment but a finding)
+  All constant-output attractors eventually collapse to [00000] under per-bit
+  reward. The mathematics: bits that fire always-on and should fire in k/4 patterns
+  accumulate net negative delta (wrong-fire penalty > correct-fire reward for k<2).
+  The final state depends on whether dampening blocks escape from [00000]. With
+  dampening: permanently stuck. Without dampening: partial escape to varying outputs.
+
+
+ROOT CAUSES IN ORDER OF PRIORITY
+==================================
+
+1. Dampening is zero-blocking learning for silent neurons (PRIMARY)
+   informationDampening(fireRate=0) = 0. Self-locking attractor. Fix this and
+   per-bit reward should function. This single issue explains why Full model stays
+   at [00000] while Baseline (no dampening) shows 56% with real diversity.
+
+2. Homeostasis/reward conflict for output neurons (SECONDARY, FIXED IN EXP-018)
+   targetFireRate=0.2 suppresses outputs per-bit reward needs at 50–75%. Fixed by
+   fixedOutputThreshold=true. This fix is confirmed to help (Baseline improved).
+
+3. Flag gate sign reversal (FIXED IN EXP-016)
+   flagStrengthThreshold=0 bypasses the always-positive flagStrength substitution.
+   Confirmed necessary for correct mismatch-trace direction.
+
+4. Constant-output attractor dynamics (SECONDARY)
+   Even with dampening fixed, the network must escape constant attractors. The
+   per-bit wrong-fire penalty drives minority bits (k=1) back to silence. This
+   requires the network to develop input-specific weights fast enough to avoid
+   the constant-attractor collapse. This may require higher propagation density
+   between input and output neurons or stronger learning rates during the critical
+   window.
+
+5. Input signal dilution (BACKGROUND)
+   5 input neurons out of 30 per cluster = 17% of cluster 0. Inter-cluster
+   connectivity 50% means each cluster-1 neuron receives on average 2.5 direct
+   connections from the 5 inputs. The recurrent noise from 23 regular neurons per
+   cluster may overwhelm the input signal, making it harder for output synapses to
+   develop input-specific weights.
+
+
+RECOMMENDATIONS
+===============
+
+Priority 1: Fix dampening for per-bit reward compatibility
+-----------------------------------------------------------
+This is the single most likely intervention to unlock learning. Three options:
+
+  Option A — Disable informationDampening entirely (fastest to test)
+    Remove the 4×fireRate×(1-fireRate) factor from combinedDampening(). Keep
+    activityHistoryDampening and ambientRelevanceDampening. Test in Full model
+    condition with fixedOutputThreshold=true, perBitReward=true.
+    Risk: more noise from inactive synapses, but likely tolerable given the
+    strong per-bit chemical signal.
+
+  Option B — Chemical-gated dampening (most principled)
+    Apply informationDampening only when chemical is positive (reinforcing).
+    When chemical is negative (correcting), bypass it: the correction must reach
+    the synapse regardless of the post-neuron's fire rate. This preserves the
+    noise-suppression benefit for the reward path while allowing error correction.
+    Implementation: modify combinedDampening() to take chemical sign as argument.
+
+  Option C — Dampen by trace sign, not post-neuron state
+    Dampen co-activation and co-silence traces (which can be noisy). Do not dampen
+    mismatch traces (which under per-bit reward are the primary error signal).
+    Implementation: check sign of eligibilityTrace inside combinedDampening().
+
+Recommendation: Test Option A first (one-line change, fastest data). If it works,
+test Option B to recover the noise-suppression benefit without blocking learning.
+
+Priority 2: Verify the learning signal is actually reaching input-layer synapses
+---------------------------------------------------------------------------------
+The per-bit chemical diffuses from output neuron positions (cluster 1, center ≈
+x=10) with radius 15. The input-to-hidden synapses end at cluster 1 neurons
+(distance ~8–12 from output neurons). They ARE within radius. But:
+
+  - With activityHistoryMinimum=0.1 and the history update:
+    history = 0.95 × history + 0.05 × participated
+    For a synapse participating every step: steady-state history = 0.05/0.05 = 1.
+    For a synapse never participating: history → 0.
+    activityHistoryDampening would suppress non-participating synapses to 0.
+
+  Add diagnostic: print mean activityHistory for input→output synapses vs
+  hidden→output synapses at ep 100, 500, 1000. Confirm the chemical is reaching
+  the right synapses and is not being zeroed by history dampening.
+
+Priority 3: Simplify the task to isolate the mechanism
+-------------------------------------------------------
+The 5-bit 4-pattern task has awkward properties: P1 and P4 are exact inverses
+(sharing input features), and different bits have wildly different required fire
+rates (25% to 75%). Before returning to this task, consider running a simpler
+diagnostic:
+
+  XOR task: 2 inputs, 1 output. {00→0, 01→1, 10→1, 11→0}.
+  Random chance: 50%. XOR requires genuine discrimination.
+  If per-bit reward (with dampening fix) can't learn XOR, the mechanism is broken.
+  If it can learn XOR in a reasonable number of episodes, scale back up to 5-bit.
+
+  This diagnostic will either confirm the mechanism works or reveal a deeper
+  failure before investing more compute in the larger task.
+
+Priority 4: Consider eliminating recurrent connections from cluster 1
+----------------------------------------------------------------------
+The heavy intra-cluster connectivity (60%) means hidden neurons in cluster 1 are
+mostly driven by each other, not by input signals from cluster 0. This makes
+input-discrimination hard: the 5 input neurons have to compete with 23 regular
+cluster-0 neurons and 30 cluster-1 neurons all talking to each other.
+
+A targeted test: set intraClusterConnectionProb to 0 for connections WITHIN
+cluster 1 that do not involve output neurons. Keep inter-cluster connections.
+This would force cluster-1 dynamics to be more input-driven and less recurrent.
+Alternatively: reduce all connectivity substantially (intra=0.2, inter=0.3) and
+test whether discrimination improves.
+
+Priority 5: Address constant-attractor collapse dynamics
+--------------------------------------------------------
+Even after fixing dampening, the network will go through a phase where it outputs
+various constant attractors before (hopefully) settling into discrimination. The
+problem: once a constant attractor fires bit j always-on, the wrong-fire penalty
+for the patterns where j should be 0 quickly drives weights down. Bits with k=1
+(fires for 1/4 patterns) will always be oscillatory in a constant-output network.
+
+Two possible fixes:
+  - Increase learningRate during the "escape" phase (e.g., linearly decay from
+    0.05 to 0.01 over first 500 episodes). Higher initial lr means selective
+    weights can become specific faster before the wrong-fire penalty kicks in.
+  - Add a small floor to the chemical decay (never fully forget the per-bit signal).
+    Currently chemicalDecayRate=0.5 means signals older than 4 steps are at 6.25%.
+    A floor of 0.01 would maintain memory of earlier per-bit signals.
+
+Priority 6: Per-pattern provisional evaluation
+-----------------------------------------------
+The provisional weight mechanism from iter 15 reverted weights when GLOBAL accuracy
+dropped. This is too coarse: a step that fixed P2 and hurt P1 would be reverted.
+Replace with per-pattern provisional evaluation: for the current step's pattern,
+record accuracy before and after. Revert only if that specific pattern got worse.
+This would make provisional weights much more useful for per-bit reward scenarios.
+
+Priority 7: Isolate the iter-15 cursor mechanisms individually
+---------------------------------------------------------------
+Modulatory cycling, radius annealing, and provisional weights were tested together
+in iter 15 and produced weight starvation. They have not been tested individually.
+Before the cursor concept is abandoned, each should be tested alone against the
+new per-bit reward baseline (fixedOutputThreshold + no dampening). Hypothesis:
+cycling alone with per-bit reward is tolerable; radius annealing is tolerable;
+provisional weights (with per-pattern evaluation) is beneficial.
+
+
+WHAT NOT TO DO
+==============
+
+Do not continue tuning parameters around a global reward signal.
+  The analysis is conclusive: global broadcast cannot carry per-bit error
+  information. Any experiment using the old modulator-based global reward is
+  measuring attractor stability, not learning. All future experiments should use
+  perBitReward=true.
+
+Do not reduce weight decay further.
+  The background sweep confirmed wd=0.0025 is optimal or near-optimal. Further
+  reduction does not help and makes constant-attractor collapse worse by allowing
+  wrong weights to persist longer.
+
+Do not test new mechanisms before fixing dampening.
+  Every experiment with dampening enabled under per-bit reward is blocked at
+  [00000] by informationDampening(fireRate=0)=0. Any result obtained will be
+  dominated by this ceiling effect and not reflect the mechanism being tested.
+
+Do not increase training episodes without fixing the blocker.
+  More episodes under [00000] produces more [00000]. The network is not slowly
+  converging — it is stuck in a zero-gradient region created by the dampening.
+
+
+CRITICAL PATH TO FIRST STABLE LEARNING
+========================================
+
+Step 1: Fix dampening (one experiment, ~1 hour)
+  Add _skipInformationDampening=true config flag. Run experiment 019 with:
+  - perBitReward: true
+  - flagStrengthThreshold: 0
+  - fixedOutputThreshold: true
+  - _skipInformationDampening: true (or _skipDampening: true for the Full model)
+  - weightDecay: 0.0025
+  - 5000 episodes
+  - All four conditions
+  Expected: Full model should show the 56%+ diversity that Baseline already shows.
+  If Full model reaches above 60% with varying outputs, the mechanism is working.
+
+Step 2: Confirm via XOR (one experiment, ~30 minutes)
+  If step 1 shows improvement, verify the mechanism on XOR before scaling.
+  XOR should be learnable in <500 episodes if the mechanism is sound.
+
+Step 3: Understand the stability boundary (two experiments)
+  Run the 5-bit task with longer training (20000–50000 episodes) to determine
+  whether the transient discrimination signal is stable or always oscillatory.
+  If always oscillatory: the constant-attractor collapse dynamics need addressing
+  (see Priority 5 above). If stable for some seeds: identify what distinguishes
+  the stable seeds (structural or dynamic).
+
+Step 4: Scale up
+  If step 3 shows stable learning for some seeds, apply the genetic algorithm /
+  systematic parameter search to maximize the fraction of seeds that converge.
+
+
+CURRENT STATE
+=============
+
+Best result with genuine discrimination: experiment 018, Baseline condition
+  56.0% mean ± 8.8%, P2 at 74%, genuine varying output vectors
+  Configuration: perBitReward=true, flagStrengthThreshold=0, fixedOutputThreshold=true,
+  _skipDampening=true (Baseline condition), weightDecay=0.0005, 10000 episodes.
+  Not stable across all seeds. Not achieved in Full model condition.
+
+Best transient result: exploratory runs during experiment 016 development
+  Seed 314 at 75% accuracy, episode 1000. Pattern-specific output vectors.
+  Collapsed by episode 2000–5000. Never formalized as a reproducible result.
+
+Experiments remaining before first stable Full-model discrimination:
+  Likely 1–3, if dampening is the only remaining blocker.
+  The path is clear.

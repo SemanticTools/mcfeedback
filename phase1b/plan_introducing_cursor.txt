@@ -1,0 +1,23 @@
+Task: Cursor-only learning experiment (experiment-020)
+This is a clean-room test. No eligibility traces, no chemical diffusion, no dampening, no flags, no ambient field. Strip everything. We are testing one idea: global reward + local perturbation, like a genetic algorithm running inside a network.
+The hypothesis: Global reward works if you only change a few synapses at a time. The reason mcfeedback failed wasn't the reward signal — it was updating every synapse simultaneously, making credit assignment impossible. A cursor restricts perturbation to a local spatial neighborhood. One scalar reward is enough to evaluate a small local change.
+Architecture (unchanged):
+
+2 clusters × 30 neurons (5 input, 5 output, 2 modulatory, 23 regular)
+Intra-cluster: 60%, Inter-cluster: 50%
+Single propagation pass per step
+Homeostasis ON for all neurons, running once per episode outside any loops
+initialThreshold: 0.5, targetFireRate: 0.2, thresholdAdjustRate: 0.01
+
+The cursor mechanism:
+One cursor. It is a 3D position in the network's coordinate space. It has a radius. Only synapses whose pre-synaptic neuron OR post-synaptic neuron is within the cursor radius are eligible for perturbation on this step. All other synapses are frozen.
+Per training step:
+
+Programming and testing rules.
+Programming language: Nodejs. mjs files. Modules instead of classes. 
+Programming rule: Write from scratch, do no use libraries.  We're testing new algoritms here, not how well we can use existing ones.
+Backup rule: Copy all source code into a ./backup folder after each iteration.  Directory syntax is "<date_and_time>_<iteration nummer>_<comment>
+Post test rule - create a test result report in ./reports, bot .html and .md version
+Post test rule #2 - update the journal file journal.md
+
+

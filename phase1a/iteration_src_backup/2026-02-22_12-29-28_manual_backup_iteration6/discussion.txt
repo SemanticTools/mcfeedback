@@ -1,0 +1,268 @@
+# mcfeedback — Discussion
+
+---
+
+## Claude's comments on Phase 1 Plan (2026-02-21)
+
+### Overall
+
+The plan is clear and well-structured. The biological motivation is coherent —
+local flagging + regional chemical diffusion is a plausible proxy for
+neuromodulatory learning (dopamine-like signals gating Hebbian plasticity). The
+four-condition experiment design is excellent: ablation studies baked in from
+the start mean we will know what is actually contributing if/when it works.
+
+---
+
+### Points worth discussing
+
+**1. Reward signal granularity**
+
+In Phase 1, the reward is a single scalar (positive/negative) broadcast from
+modulatory neurons. The chemical then decays within one step (chemicalDecayRate
+= 0.5). This means the eligibility trace computed this step must be the one
+that gets reinforced — there is no temporal credit assignment window. That is
+fine for spatial-only phase, but it is worth being explicit about it in the
+code comments so the Phase 2 temporal extension is easier to reason about.
+
+**2. Binary output vs. threshold**
+
+The engine computes a binary output (0 or 1) and then computes reward by
+comparing directly to the binary target. But the forward pass accumulates
+weighted sums, and the threshold is a real-valued number. The plan does not
+specify how the accumulator becomes binary — is it a step function at
+threshold? Worth pinning this down precisely in neuron.mjs before everything
+else depends on it.
+
+**3. Four-quadrant flagging and mismatch asymmetry**
+
+The mismatch rule (pre fires + post silent, or pre silent + post fires) gives
+a negative trace. That is anti-Hebbian. Fine. But the two mismatch cases are
+treated identically (same mismatchStrength). Biologically, "pre fires, post
+silent" (failed excitation) and "pre silent, post fires" (post fires despite
+no input from this synapse) have different implications. Whether symmetric
+treatment is the right simplification is worth a note.
+
+**4. Co-silence flagging and ambient threshold sensitivity**
+
+The co-silence quadrant (pre silent + post silent + high ambient) is the most
+fragile. The behavior switches entirely on whether ambientField > ambientThreshold.
+This threshold is a global config constant, but ambient field values will depend
+on cluster density, neuronSpread, and ambientRadius in a non-obvious way. It
+would be worth computing the expected ambient field range analytically (or in
+a quick sanity test) before running experiments, so the threshold is set
+meaningfully rather than guessed.
+
+**5. Synapse weight clamping**
+
+maxWeightMagnitude clamps weights, but no clamping is specified for the
+eligibility trace itself. A synapse with a very large trace × chemical product
+could cause a large weight update in a single step even within the clamp. Worth
+deciding whether to clip the trace, the update, or just rely on the weight
+clamp being sufficient.
+
+**6. Sparse inter-cluster connections and signal propagation**
+
+With interClusterConnectionProb = 0.1 and 30 neurons per cluster, the average
+neuron in Cluster A will connect to ~3 neurons in Cluster B. Whether that is
+enough to drive coherent output in Cluster B is an open empirical question. If
+early experiments show the signal does not propagate, this is the first
+parameter to increase.
+
+**7. Implementation order note**
+
+The plan builds engine.mjs last (Step 9). One small suggestion: after Step 4
+(network.mjs), write a minimal integration stub that does a forward pass with
+random weights and no learning, just to verify the data wiring is correct before
+adding the flagging and dampening layers. Catching a topology bug early (e.g.,
+synapse.from/to referencing the wrong map) saves debugging time later.
+
+---
+
+### Things the plan gets right
+
+- Flat synapse array as the primary data structure: good for iteration
+  performance and keeps the "synapses are primary" principle obvious in code.
+- Separation of static neuron position (Tier 1) from dynamic neuron state
+  (Tier 2): clean and avoids mixing update rates.
+- Config-first design: will make parameter sweeps and the four conditions
+  straightforward to implement.
+- Unit tests before wiring: the flagging and dampening functions are pure and
+  easily unit-tested; doing this before engine.mjs is the right call.
+
+---
+
+Some answers
+
+2 -> step function
+3 -> experiments will show us
+4 -> do as proposed
+5 -> clamp the weight delta, add maxWeightDelta: 0.1 to config
+
+---
+
+## Claude's response to answers (2026-02-21)
+
+**2** — Confirmed: step function at threshold. So `computeOutput` in neuron.mjs is:
+```
+output = (accumulator >= threshold) ? 1 : 0
+```
+Simple and unambiguous. Good.
+
+**3** — Agreed. Run it symmetric, observe the results, adjust if needed.
+
+**4** — Will add a sanity test after network.mjs is built that prints the min/mean/max
+ambient field for a freshly initialized network. That gives us an empirical basis
+for setting ambientThreshold before the first real experiment.
+
+**5 — Proposed solution for trace/update clamping**
+
+The simplest approach: clamp the *weight update* (the delta), not the trace itself.
+
+In `synapse.mjs`, `updateWeight` becomes:
+
+```javascript
+const rawDelta = synapse.eligibilityTrace * synapse.chemicalLevel * config.learningRate;
+const clampedDelta = Math.max(-config.maxWeightDelta, Math.min(config.maxWeightDelta, rawDelta));
+synapse.weight = Math.max(-config.maxWeightMagnitude,
+                 Math.min( config.maxWeightMagnitude, synapse.weight + clampedDelta));
+```
+
+Add one new config key:
+```javascript
+maxWeightDelta: 0.1   // maximum weight change per step
+```
+
+Why clamp the delta rather than the trace:
+- The trace has semantic meaning (flagging strength) — clamping it would corrupt
+  information used downstream if we ever log or inspect it.
+- The chemical can independently be large if many modulatory neurons fire close
+  together. Clamping the product (the delta) handles both sources of blow-up
+  in one place.
+- Weight clamping alone is not enough: a runaway delta could still cause large
+  oscillations even if the final value is clipped.
+
+With learningRate = 0.01, trace ≤ coActivationStrength = 1.0, and
+positiveRewardStrength = 1.0, the typical delta is 0.01 — well inside
+maxWeightDelta = 0.1. The clamp only fires in pathological cases.
+
+---
+
+## Experiment 001 — Run log (2026-02-21)
+
+### Two bugs found and fixed before meaningful results
+
+**Bug 1: Activity history deadlock**
+activityHistory initializes to 0. activityHistoryDampening(0) = 0. So on step 1,
+all eligibility traces are zeroed by dampening. With zero trace, participated=0, so
+activityHistory stays 0 forever. Weights never move.
+
+Fix: move updateActivityHistory to between flagging and dampening (step 4.5),
+so it reads the raw trace before dampening erases it.
+
+**Bug 2: Linear falloff broken**
+`Math.max(0, 1 - distance)` returns 0 for any distance > 1. The "global reward"
+baseline conditions used linear falloff with radius=1000, which sent zero chemical
+to all synapses. Also: the full model's chemicalDiffusionRadius=5 didn't reach
+inter-cluster synapses (distance ≈ 11).
+
+Fix: normalize linear falloff as `1 - distance/radius`. Add 'constant' falloff
+mode (returns 1 regardless of distance) for global-reward conditions. Increase
+full model radius to 15.
+
+---
+
+### Fire rate runaway — new problem after fixes
+
+After both bugs were fixed, learning happens (weights change) but all conditions
+show fire rate runaway: neurons end up firing 80–85% of the time (target: 20%).
+Thresholds climb to 7–8 without stopping it.
+
+Root cause:
+- The "always fire all output neurons" strategy achieves ~55% accuracy on these patterns.
+- Reward = (accuracy − 0.5) × 2 = +0.10 for 55% accuracy.
+- This fires modulatory neurons EVERY step with positive chemical.
+- Persistent positive chemical × co-activation traces → all weights grow toward max.
+- Homeostatic threshold regulation increases threshold by 0.01/step, but weights
+  grow at ~0.001/step × many synapses. The network saturates before homeostasis
+  can bring fire rate down.
+- Once saturated, co-silence and mismatch quadrants are barely visited.
+  The algorithm has no path out.
+
+This is a classic Hebbian attractor: "everything fires" is a stable equilibrium
+because it gives above-chance accuracy, which gives positive reward, which
+reinforces co-activation, which keeps everything firing.
+
+The biological solution is **synaptic decay** (synapses that aren't actively
+maintained weaken over time). This prevents weights from accumulating indefinitely
+and forces the network to "earn" its weights continuously.
+
+Proposed fix: add weight decay to synapse.mjs updateWeight:
+```javascript
+synapse.weight *= (1 - config.weightDecay);   // before adding delta
+```
+Config addition: `weightDecay: 0.005`
+
+At weightDecay=0.005, a synapse at weight=2.0 decays by 0.01/step. A learning
+step adds at most 0.01. So weights can only stay high if they receive consistent
+positive reinforcement — random co-activation is no longer sufficient to sustain
+them.
+
+Weight decay implemented. Fire rate runaway is now controlled in most conditions
+(Baseline stabilizes at fireRate ≈ 0.20 by ep 700). However accuracy is still
+oscillating at 40-60%.
+
+---
+
+### Input→output connectivity is too sparse
+
+Root cause of remaining failure: with interClusterConnectionProb=0.1 and
+neuronsPerCluster=30, there are on average only **2 direct input→output synapses**
+(5 × 5 × 0.1 = 2.5 expected). Three of the five input neurons have zero direct
+connections to any output neuron.
+
+The signal must travel: input → random cluster-A neuron (via intra-cluster) →
+inter-cluster → random cluster-B neuron → output. This is a 3+ hop chain.
+Local learning rules have no mechanism to propagate credit across multi-hop paths
+without global error signals — which is exactly what this architecture avoids.
+
+This was anticipated in the original discussion (point 6). Fix: increase
+interClusterConnectionProb from 0.1 to 0.5 so that most input neurons have
+direct output connections (expected: 5×5×0.5 = 12.5 direct paths).
+
+### Results after increasing interClusterConnectionProb to 0.5
+
+```
+Condition       | Final Accuracy | Episodes to 90% | Converged?
+----------------|----------------|-----------------|----------
+Baseline        |   50.0%        |     N/A         | No
+Ambient only    |   55.0%        |     N/A         | No
+Dampening only  |   45.0%        |     N/A         | No
+Full model      |   45.0%        |      52         | Yes
+```
+
+Most notable: Ambient only achieved and SUSTAINED 80% accuracy from ep 200 to ep 1000.
+That did not show in the summary (final eval averages across 4 patterns at the very end),
+but is visible in the episode trace. Full model briefly hit 90% at ep 52.
+
+### Remaining instabilities
+
+1. **Threshold drift** — In Ambient only, mean threshold goes to −4.6 (increasingly
+   negative) while fire rate is 0.61 (above target). Homeostasis should increase
+   threshold when fireRate > target, but the mean is being pulled by a bimodal
+   distribution: some neurons with very high fire rates (thresholds climbing) and
+   others with low fire rates (thresholds crashing negative). The latter dominate the
+   mean, causing apparent runaway in the wrong direction.
+
+2. **Dampening conditions show fire rate runaway** — Dampening only and Full model
+   reach fire rates of 0.83 and 0.72 before starting to recover. The informationDampening
+   inverted-U is supposed to suppress always-on neurons, but the positive reward signal
+   is strong enough that even dampened traces accumulate weight faster than decay can
+   remove them.
+
+3. **Counterintuitive ranking** — Ambient only outperforms Full model. Reason:
+   dampening is over-restricting learning at mid-range fire rates. The inverted-U
+   peaks at fireRate=0.5 with value 1.0, but at fireRate=0.2 (the homeostatic target)
+   it only gives 4×0.2×0.8 = 0.64. So the very fire rate homeostasis is trying to
+   maintain is the one where informationDampening is already reducing traces by 36%.
+   The dampening and homeostatic target are fighting each other.

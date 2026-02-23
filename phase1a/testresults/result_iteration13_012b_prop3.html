@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mcfeedback — Iteration 13: 012b + propagationCycles=3</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #d0d0d0; padding: 32px 28px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #555; margin-bottom: 36px; }
+  h2 { font-size: 0.95rem; font-weight: 700; color: #aaa; margin: 36px 0 14px; border-bottom: 1px solid #1e2130; padding-bottom: 7px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+  canvas { width: 100% !important; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.83rem; }
+  th { background: #1e2130; color: #777; font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid #2a2d3a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #161920; }
+  .meta { font-size: 0.78rem; color: #444; margin-top: 10px; }
+  .verdict { border: 1px solid #2a2d3a; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.7; }
+  .verdict strong { color: #fff; }
+  .verdict.red    { border-color: #3a2222; background: #1a1215; }
+  .verdict.yellow { border-color: #3a3020; background: #181510; }
+  .verdict.blue   { border-color: #1e2a3a; background: #111520; }
+  .verdict.green  { border-color: #1e3a22; background: #111a13; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+  .leg { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .param-change { font-family: monospace; font-size: 0.82rem; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 5px; padding: 12px 16px; margin-bottom: 20px; color: #aaa; line-height: 1.9; }
+  .param-change .new { color: #76b7b2; }
+  .param-change .bad { color: #e15759; }
+  .param-change .note { color: #555; }
+  @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>mcfeedback — Iteration 13: 012b + propagationCycles=3</h1>
+<div class="subtitle">
+  experiment-013.mjs &nbsp;·&nbsp;
+  N = 10 seeds &nbsp;·&nbsp;
+  Seeds: 42, 137, 271, 314, 500, 618, 777, 888, 999, 1234 &nbsp;·&nbsp;
+  1000 episodes &nbsp;·&nbsp;
+  Base: 012b (weightDecay=0.0025) + propagationCycles=3
+</div>
+
+<div class="param-change">
+  <strong style="color:#fff">Config = experiment-012b + one addition:</strong><br>
+  weightDecay &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.0025 &nbsp;<span class="note">(012b fix, kept)</span><br>
+  learningRate &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.01 &nbsp;&nbsp;<span class="note">(exp-004 original, unchanged)</span><br>
+  flagStrengthGain &nbsp;0.3 &nbsp;&nbsp;&nbsp;<span class="note">(exp-004 original, unchanged)</span><br>
+  <span class="new">propagationCycles &nbsp;3</span> &nbsp;&nbsp;&nbsp;<span class="note">← the one new addition: forward pass 3× per training step</span>
+</div>
+
+<div class="verdict red">
+  <strong>Verdict: complete collapse — p&lt;0.01, Full model 45% on all 10 seeds.</strong><br>
+  Adding propagationCycles=3 to 012b destroys all gains from the weight-decay fix.
+  012b achieved 10/10 seeds at 55% with mean |weight|=0.79.
+  Experiment-013 gets 0/10 seeds above 45% with mean |weight|=0.35 —
+  lower than exp-004's original 0.30 despite the same 0.0025 weight decay.
+</div>
+
+<div class="verdict yellow">
+  <strong>Root cause: threshold homeostasis runs 3× per episode inside the propagation loop.</strong><br>
+  The <code>propagationCycles</code> implementation wraps the entire forward pass
+  (accumulate → fire → regulate threshold) in a loop. With 3 cycles, each neuron's
+  <code>regulateThreshold()</code> is called 3 times per episode, and <code>cycleCount</code>
+  increments 3 times. Threshold homeostasis effectively runs at triple speed.<br><br>
+  The network's thresholds adapt so aggressively that they erase any pattern-specific
+  signal before learning can consolidate it. The weight magnitude drops to 0.35 even
+  with slow weight decay — because the threshold is constantly chasing a target fire
+  rate that overrides the weight-driven selectivity.<br><br>
+  <strong>The per-pattern flip is the smoking gun:</strong><br>
+  012b: P1=40%, P2–P4=60% &nbsp;(network learns patterns 2–4)<br>
+  013 &nbsp;: P1=60%, P2–P4=40% &nbsp;(network learns the <em>wrong</em> attractor — mirror image)
+  <br><br>
+  The triple-speed homeostasis drives the network to a different fixed-output state
+  — not a failure to learn, but learning the wrong fixed point faster.
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="dot" style="background:#4e79a7"></div>Baseline</div>
+  <div class="leg"><div class="dot" style="background:#f28e2b"></div>Ambient only</div>
+  <div class="leg"><div class="dot" style="background:#e15759"></div>Dampening only</div>
+  <div class="leg"><div class="dot" style="background:#76b7b2"></div>Full model</div>
+</div>
+
+<h2>1 — Accuracy distribution across seeds</h2>
+<div class="card">
+  <canvas id="stripChart" height="300"></canvas>
+  <p class="meta">Full model: every seed at exactly 45% — zero variance. Baseline dropped to 53.5% (one seed at 45%, one at 50%) — even the control is slightly hurt by the aggressive homeostasis. Ambient only and Dampening only stay at 55% because… see analysis below.</p>
+</div>
+
+<h2>2 — 012b vs 013: head-to-head (Full model)</h2>
+<div class="card" style="padding:0">
+<table>
+  <tr><th>Metric</th><th style="color:#76b7b2">012b (reference)</th><th style="color:#e15759">013 (012b + cycles=3)</th></tr>
+  <tr><td>Mean accuracy</td>   <td style="color:#76b7b2;font-weight:600">55.0%</td><td style="color:#e15759;font-weight:600">45.0%</td></tr>
+  <tr><td>Std</td>             <td>0.0%</td><td>0.0%</td></tr>
+  <tr><td>Seeds ≥ 55%</td>     <td style="color:#76b7b2;font-weight:600">10 / 10</td><td style="color:#e15759;font-weight:600">0 / 10</td></tr>
+  <tr><td>Mean |weight|</td>   <td>0.7898</td><td style="color:#e15759">0.3483</td></tr>
+  <tr><td>Full vs Baseline t</td><td>+1.0</td><td style="color:#e15759">−7.96</td></tr>
+  <tr><td>Full vs Baseline p</td><td>0.2534 ns</td><td style="color:#e15759">~0.000 **</td></tr>
+</table>
+</div>
+
+<h2>3 — Per-pattern accuracy: the bias flip</h2>
+<div class="card">
+  <canvas id="patternChart" height="260"></canvas>
+  <p class="meta">
+    The pattern bias completely inverts between 012b and 013. In both, exactly one pattern
+    is singled out for failure — but it's a different pattern. This is not random noise:
+    it's the network converging to two different fixed-output attractors, each satisfying
+    3/4 patterns at ~60% and failing 1/4 at ~40%. The triple homeostasis speed is
+    sufficient to push the network into whichever attractor it reaches first,
+    regardless of which one is "correct."
+  </p>
+</div>
+
+<div class="two-col">
+  <div>
+    <h2>4 — Paired t-tests vs Baseline</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Comparison</th><th>Mean diff</th><th>t</th><th>p</th><th>Result</th></tr>
+      <tr>
+        <td>Ambient only vs Baseline</td>
+        <td style="color:#76b7b2">+1.5%</td>
+        <td>1.4056</td><td>0.1427</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Dampening only vs Baseline</td>
+        <td style="color:#76b7b2">+1.5%</td>
+        <td>1.4056</td><td>0.1427</td>
+        <td style="color:#555;font-weight:600">ns</td>
+      </tr>
+      <tr>
+        <td>Full model vs Baseline</td>
+        <td style="color:#e15759">−8.5%</td>
+        <td style="color:#e15759">−7.9649</td>
+        <td style="color:#e15759">~0.000</td>
+        <td style="color:#e15759;font-weight:600">** p&lt;0.01</td>
+      </tr>
+    </table>
+    </div>
+    <p class="meta" style="margin-top:8px">Ambient only and Dampening only are <em>slightly better</em> than Baseline (ns) — these two conditions share the propagation cycles but avoid either the spatial chemical diffusion (Ambient) or the dampening noise (Dampening). The Full model combines all mechanisms with triple-speed homeostasis and collapses entirely.</p>
+  </div>
+
+  <div>
+    <h2>5 — Raw data (Full model)</h2>
+    <div class="card" style="padding:0">
+    <table>
+      <tr><th>Seed</th><th style="color:#76b7b2">012b acc</th><th style="color:#e15759">013 acc</th><th style="color:#e15759">013 |w|</th></tr>
+      <tr><td style="color:#555">42</td>   <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3247</td></tr>
+      <tr><td style="color:#555">137</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.4146</td></tr>
+      <tr><td style="color:#555">271</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3608</td></tr>
+      <tr><td style="color:#555">314</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3456</td></tr>
+      <tr><td style="color:#555">500</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3736</td></tr>
+      <tr><td style="color:#555">618</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3821</td></tr>
+      <tr><td style="color:#555">777</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3124</td></tr>
+      <tr><td style="color:#555">888</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3328</td></tr>
+      <tr><td style="color:#555">999</td>  <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3244</td></tr>
+      <tr><td style="color:#555">1234</td> <td style="color:#76b7b2">55%</td><td style="color:#e15759">45%</td><td>0.3118</td></tr>
+      <tr style="border-top:2px solid #2a2d3a">
+        <td style="color:#aaa;font-weight:600">Mean</td>
+        <td style="color:#76b7b2;font-weight:600">55.0%</td>
+        <td style="color:#e15759;font-weight:600">45.0%</td>
+        <td>0.3483</td>
+      </tr>
+    </table>
+    </div>
+  </div>
+</div>
+
+<div class="verdict blue">
+  <strong>What this reveals about the propagationCycles implementation:</strong><br>
+  The current engine wraps the full step 2 (accumulate + fire + regulate threshold + update stats)
+  inside the propagation loop. This means adding cycles doesn't just give signals more hops
+  to travel — it also multiplies the speed of all per-neuron homeostatic processes.
+  For propagationCycles to be useful, threshold regulation and stat tracking should run
+  <em>once</em> per episode (after all cycles), while only the accumulate+fire inner loop
+  repeats.<br><br>
+  <strong>Fix (if propagation cycles are to be revisited):</strong><br>
+  Move <code>regulateThreshold()</code> and the <code>cycleCount</code>/<code>fireCount</code>
+  updates outside the propagation loop — run them once after all cycles complete.
+  Only the weighted accumulation and threshold comparison should repeat.
+</div>
+
+<div class="verdict blue" style="margin-top:8px">
+  <strong>Progress summary — best configurations:</strong><br>
+  exp-004 (flag gate):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;53% mean, 3/10 at 65%, mean|w|=0.30<br>
+  <strong>012b (0.5×WD):&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;55% mean, 10/10 at 55%, mean|w|=0.79 ← current best</strong><br>
+  013 (012b + propagationCycles=3):&nbsp;45% mean, 0/10 above 45%, mean|w|=0.35<br><br>
+  <strong>Conclusion:</strong> propagationCycles as currently implemented is harmful because it
+  triples threshold homeostasis speed. The 012b fix (halved weight decay) remains
+  the cleanest, most effective change found so far. Next step should focus on
+  breaking the 55% ceiling rather than adding propagation cycles.
+</div>
+
+<script>
+const COLORS = ["#4e79a7","#f28e2b","#e15759","#76b7b2"];
+const LABELS = ["Baseline","Ambient only","Dampening only","Full model"];
+
+const stripData = [
+  { label: "Baseline",       color: "#4e79a7", values: [55,45,55,55,55,55,55,55,55,50], mean: 53.5 },
+  { label: "Ambient only",   color: "#f28e2b", values: [55,55,55,55,55,55,55,55,55,55], mean: 55.0 },
+  { label: "Dampening only", color: "#e15759", values: [55,55,55,55,55,55,55,55,55,55], mean: 55.0 },
+  { label: "Full model",     color: "#76b7b2", values: [45,45,45,45,45,45,45,45,45,45], mean: 45.0 },
+];
+
+const scatterSets = stripData.map((d, ci) => ({
+  type: 'scatter', label: d.label,
+  data: d.values.map(v => ({ x: ci + 1 + (Math.random()-0.5)*0.18, y: v })),
+  backgroundColor: COLORS[ci] + 'bb', borderColor: COLORS[ci],
+  borderWidth: 1, pointRadius: 6, pointHoverRadius: 8, showLine: false,
+}));
+const meanSets = stripData.map((d, ci) => ({
+  type: 'scatter', label: '_mean_' + ci,
+  data: [{ x: ci + 0.7, y: d.mean }, { x: ci + 1.3, y: d.mean }],
+  showLine: true, borderColor: COLORS[ci], borderWidth: 3, pointRadius: 0, fill: false,
+}));
+new Chart(document.getElementById('stripChart').getContext('2d'), {
+  type: 'scatter',
+  data: { datasets: [...scatterSets, ...meanSets] },
+  options: {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { filter: i => !i.dataset.label.startsWith('_'), callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y + '%' } },
+    },
+    scales: {
+      x: { min: 0.3, max: 4.7, ticks: { color: '#aaa', callback: v => { const i = Math.round(v)-1; return i>=0&&i<4?LABELS[i]:''; }, stepSize:1, maxTicksLimit:6 }, grid: { color: '#1a1d27' } },
+      y: { min: 35, max: 65, title: { display: true, text: 'Accuracy (%)', color: '#555', font: { size: 11 } }, ticks: { color: '#555', callback: v => v+'%' }, grid: { color: ctx => ctx.tick.value===50?'#333':'#1e2130', lineWidth: ctx => ctx.tick.value===50?2:1 } }
+    }
+  }
+});
+
+// Per-pattern chart comparing 012b vs 013
+new Chart(document.getElementById('patternChart'), {
+  type: 'bar',
+  data: {
+    labels: ['P1', 'P2', 'P3', 'P4'],
+    datasets: [
+      { label: '012b (reference)', data: [40,60,60,60], backgroundColor: '#76b7b2cc', borderColor: '#76b7b2', borderWidth: 2 },
+      { label: '013 Full model',   data: [60,40,40,40], backgroundColor: '#e15759cc', borderColor: '#e15759', borderWidth: 2 },
+      { label: '013 Baseline',     data: [42,56,58,58], backgroundColor: '#4e79a7cc', borderColor: '#4e79a7', borderWidth: 1 },
+      { label: '013 Ambient only', data: [40,60,60,60], backgroundColor: '#f28e2bcc', borderColor: '#f28e2b', borderWidth: 1 },
+    ]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: { legend: { labels: { color: '#aaa', font: { size: 11 }, boxWidth: 12 } }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.parsed.y + '%' } } },
+    scales: {
+      x: { ticks: { color: '#aaa' }, grid: { color: '#1a1d27' } },
+      y: { min: 30, max: 70, title: { display: true, text: 'Mean accuracy (%)', color: '#555', font: { size: 11 } }, ticks: { color: '#555', callback: v => v+'%' }, grid: { color: ctx => ctx.tick.value===50?'#333':'#1e2130', lineWidth: ctx => ctx.tick.value===50?2:1 } }
+    }
+  }
+});
+</script>
+</body>
+</html>

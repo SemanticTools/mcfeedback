@@ -1,0 +1,400 @@
+================================================================================
+  PROJECT STATUS — mcfeedback2
+  Last updated: 2026-02-23
+  Last experiment: 024
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+WHAT THIS PROJECT IS
+────────────────────────────────────────────────────────────────────────────────
+
+A clean-room research project testing whether a spiking neural network can learn
+from a single scalar reward signal, with no eligibility traces, no backprop, no
+diffusion, no chemical fields.
+
+The core hypothesis (from plan.txt):
+  Global reward works if you only change a few synapses at a time.
+  The reason mcfeedback failed wasn't the reward signal — it was updating every
+  synapse simultaneously, making credit assignment impossible.
+  A local perturbation window + one scalar reward = enough to learn.
+
+The biological inspiration: astrocytes. Glial cells that tile the cortex in
+non-overlapping spatial domains. Each wraps ~100k synapses in its territory.
+When activated, it releases gliotransmitters that modulate plasticity only for
+synapses within its domain. This is a biological cursor.
+
+RULES (from plan.txt):
+  - Language: Node.js, .mjs modules, no libraries, written from scratch
+  - Backup: copy src/ into ./backup/<datetime>_<N>_<comment> before each run
+  - Reports: write both .html and .md to ./reports/ after each run
+  - Journal: update journal.md after each experiment
+
+HOW TO RUN:
+  node src/main.mjs
+  (No package.json needed. Pure Node.js ES modules, no dependencies.)
+  Expected runtime at 20k episodes, 10 seeds: ~60–90 seconds.
+
+
+────────────────────────────────────────────────────────────────────────────────
+ARCHITECTURE
+────────────────────────────────────────────────────────────────────────────────
+
+Network:
+  - 2 clusters × 30 neurons = 60 neurons total
+  - Per cluster: 5 input, 5 output, 2 modulatory, 23 regular
+  - Intra-cluster connectivity: 60% (random)
+  - Inter-cluster connectivity: 50% (random)
+  - ~2330 synapses total
+  - Neurons placed in 3D space: cluster 0 at x≈0, cluster 1 at x≈15, spread ±5
+  - Initial weights: uniform [-0.1, 0.1]
+  - Initial thresholds: 0.5 for all neurons
+  - No recurrence (single forward pass per step)
+
+Task:
+  - 8 fixed patterns: 5-bit input → 5-bit target output
+  - Network reads cluster 0 input neurons (ids 0–4)
+  - Evaluated on cluster 0 output neurons (ids 5–9)
+  - Accuracy = fraction of output bits matching target (0.0 – 1.0)
+  - Random init gives 0.5 accuracy (chance)
+
+Training mechanism (current — astrocyte/epsilon):
+  Each step:
+    1. SENSE   — compute activation score for each astrocyte (fraction of
+                 territory neurons that fired last step)
+    2. ACTIVATE — select active astrocytes (score > threshold, or epsilon)
+                 min 1, max 3 active per step
+    3. COLLECT — union of ownedSynapses from active astrocytes (deduplicated)
+    4. BASELINE — propagate(network, input), compute soft reward
+    5. PERTURB — save weights, add Gaussian noise (std=0.1) to eligible synapses
+    6. EVALUATE — propagate again, compute soft reward
+    7. DECIDE  — if afterSoft > baseSoft: keep; else revert
+    8. ADAPT   — update astrocyte reward histories and thresholds every 50 steps
+
+Soft reward (for accept/reject decision):
+  Per output neuron: sigmoid( sign * (activation - threshold) )
+  where sign=+1 if target=1, sign=-1 if target=0.
+  Continuous; sensitive to sub-threshold movement.
+
+Binary reward (for reporting):
+  Fraction of output bits exactly matching target (0, 0.2, 0.4, 0.6, 0.8, 1.0).
+
+Astrocyte threshold adaptation:
+  - Every 50 steps: if recent success rate > 15% → lower threshold by 0.01
+  - If recent success rate < 5% → raise threshold by 0.01
+  - Clamped to [0.1, 0.9]
+  - Effectively a meta-learner: productive astrocytes become easier to activate
+
+Epsilon exploration (exp023+):
+  - Each astrocyte, each step, independently fires with P=EPSILON=0.01
+    regardless of score/threshold
+  - Epsilon activations tracked separately (ast.epsilonCount)
+  - Purpose: break bootstrapping deadlock for dormant cluster 1 astrocytes
+
+
+────────────────────────────────────────────────────────────────────────────────
+SOURCE FILES (src/)
+────────────────────────────────────────────────────────────────────────────────
+
+rng.mjs
+  Mulberry32 PRNG. Patches Math.random() globally.
+  Call seedRandom(seed) before any stochastic operation to get reproducible runs.
+
+network.mjs
+  createNetwork() — builds 2-cluster network with random weights/positions.
+
+task.mjs
+  trainingPatterns — 8 fixed 5→5 bit mappings.
+  randomPattern()  — returns { input, target, patternIdx }.
+
+propagate.mjs
+  propagate(network, inputPattern) — single forward pass.
+  Returns { binaryOutput, activations } for cluster 0 output neurons (ids 5–9).
+  Sets n.fired on all neurons (used by astrocytes to sense activity next step).
+
+reward.mjs
+  computeBinaryReward(binaryOutput, target) — fraction correct bits (0–1).
+  computeSoftReward(activations, target, network) — continuous sigmoid reward.
+
+perturb.mjs
+  saveWeights(eligible), perturb(eligible), revertWeights(saved).
+  Gaussian noise, std=0.1, clamped to [-2.0, 2.0].
+
+astrocyte.mjs
+  EPSILON = 0.01 (exported)
+  createAstrocytes(network, numPatterns) — places 8 astrocytes (4 per cluster)
+    in 2×2 grid at quartile positions within each cluster's x-y bounding box.
+    Pre-computes neuronIds (within TERRITORY_RADIUS=3.0) and ownedSynapses
+    (synapses where pre OR post neuron is in territory).
+  computeActivationScores(astrocytes, prevFiredState) — firing-based sensing.
+  computeTrafficScores(astrocytes, prevFiredState) — traffic-based sensing
+    (mean abs(weight) for synapses with fired pre-neuron; exp022 alternative).
+  selectActiveAstrocytes(astrocytes, scores, useEpsilon=false)
+    — score > threshold activates; epsilon chance for dormant ones if useEpsilon.
+    — minimum 1, maximum 3 (MAX_ACTIVE) active per step.
+  getEligibleSynapsesFromAstrocytes(activeAstrocytes) — union, deduplicated.
+  adaptAstrocytes(astrocytes, activeAstrocytes, kept, totalSteps).
+  logCoverage(astrocytes, network).
+
+cursor.mjs
+  Legacy cursor mechanism (iter-4 baseline). Random 3D walk, radius-based
+  eligible synapse selection. Retained for backward compatibility.
+
+train.mjs
+  EPISODES = 20000, STEPS_PER_EPISODE = 10 (current)
+  train(network, condition) dispatcher:
+    'epsilon'           → trainAstrocyte(network, 'firing',  true)
+    'baseline'          → trainAstrocyte(network, 'firing',  false)
+    'astrocyte-firing'  → trainAstrocyte(network, 'firing',  false)
+    'astrocyte-traffic' → trainAstrocyte(network, 'traffic', false)
+    'astrocyte'         → alias for astrocyte-firing
+    'cursor'            → trainCursor(network)
+    'control'           → returns empty stats immediately (no training)
+  Returns { trajectory, totalAccepted, totalRejected, weightStart, weightEnd,
+            astrocyteStats }.
+  astrocyteStats includes scoreSamples: { ep100, ep1000, epFinal } per astrocyte.
+
+inference.mjs
+  runInference(network) — runs all 8 patterns through frozen network.
+  Returns { results, meanAccuracy, distinctOutputs }.
+
+main.mjs
+  Experiment 024 entry point.
+  10 seeds × 3 conditions (epsilon / baseline / control).
+  Calls generateReport(allResults, config, startTime).
+
+report.mjs
+  generateReport(allResults, config, startTime).
+  Writes ./reports/experiment-024.md and ./reports/experiment-024.html.
+  Sections: summary table, success criteria, per-seed results, SVG trajectory
+  charts, cluster activation breakdown, per-astrocyte diagnostics, inference
+  detail, conclusion.
+
+homeostasis.mjs
+  Legacy module. Not used in current experiments (homeostasis=false since iter4).
+  Retained in src/ but not imported by any current file.
+
+
+────────────────────────────────────────────────────────────────────────────────
+EXPERIMENT HISTORY & RESULTS
+────────────────────────────────────────────────────────────────────────────────
+
+Baseline: random init, no training → always 0.500 accuracy, 1 distinct output.
+
+Exp020 Iter1 — Cursor radius=4, std=0.05, acceptance=>=, homeostasis ON
+  Result: 100% accept rate. Radius too large (~200–370 eligible synapses).
+  Effects cancel; no selection pressure. Homeostasis drives improvement.
+  Mean accuracy: ~0.564. NOT real learning.
+
+Exp020 Iter2 — Cursor radius=2, std=0.1, acceptance=>, homeostasis ON
+  Result: 0% accept rate. Discrete binary reward makes strict > impossible.
+  Weight changes reverted 100%. Homeostasis still improves accuracy to ~0.688.
+  NOT cursor learning.
+
+Exp020 Iter3 — Same + soft reward for accept/reject
+  Result: 0–20% accept rate. Partial contribution from cursor, hard to isolate.
+  Mean accuracy ~0.680. Homeostasis still dominant.
+
+Exp020 Iter4 — Homeostasis OFF, 10 seeds, cursor vs control
+  RESULT: CONFIRMED CURSOR LEARNS INDEPENDENTLY.
+  cursor mean: 0.648, control mean: 0.500. Cursor wins all 10 seeds.
+  Accept rate: ~3.7% (below 5% target but clearly non-zero learning).
+  Distinct outputs: 3–7 per seed (vs 1 for control).
+  Reports: reports/experiment-020-iter4.{md,html}
+
+Exp021 — Astrocytes (firing-based sensing) vs cursor vs control, 5k ep
+  8 astrocytes (4/cluster), territory radius 3.0, adaptive thresholds.
+  Conditions: astrocyte | cursor | control.
+  RESULT: astrocyte 0.668, cursor 0.648, control 0.500.
+  Accept rate: astrocyte 38% vs cursor 3.7% — massive improvement.
+  ISSUE FOUND: Cluster 1 astrocytes nearly dormant (0–dozens of activations).
+    C1 output neurons rarely fire with random init weights → C1 score ≈ 0
+    → never selected → threshold ratchets to 0.9 → permanently dormant.
+  Reports: reports/experiment-021.{md,html}
+
+Exp022 — Traffic scoring (sense synaptic traffic instead of neuron firing), 5k ep
+  Change: computeActivationScores → computeTrafficScores.
+  Traffic = mean abs(weight) for synapses with fired pre-neuron.
+  Conditions: astrocyte-traffic | astrocyte-firing | control.
+  RESULT: traffic 0.665, firing 0.667. Essentially a tie. C1 STILL dormant.
+  Root cause: C1 traffic scores 0.03–0.04, below 0.5 threshold.
+    Inter-cluster weights start near zero, never grow because C1 never selected.
+    Bootstrapping deadlock. Traffic signal change is NOT the fix.
+  Reports: reports/experiment-022.{md,html}
+
+Exp023 — Epsilon exploration, 5k episodes
+  Change: each astrocyte has P=0.01/step chance of activating regardless of score.
+  Over 50k steps: ~500 forced activations per dormant astrocyte.
+  Conditions: epsilon | baseline | control.
+  RESULT: epsilon 0.680, baseline 0.667. 4/4 success criteria passed.
+  C1 activations: 25k–42k per seed (vs near-zero baseline). C1 success rates
+    28–39% ≈ C0 success rates (35–41%). C1 territory is productive; it just
+    needed to be visited.
+  Seed 314: 8 distinct output vectors (perfect pattern discrimination).
+  Reports: reports/experiment-023.{md,html}
+
+Exp024 — Epsilon exploration, 20k episodes (4× longer)
+  Hypothesis: C1 just woke up, give it more time to refine.
+  Change: EPISODES 5000 → 20000. Everything else identical.
+  RESULT: epsilon 0.663, baseline 0.670. 3/4 criteria (accuracy criterion FAILED).
+  C1 activations: 121k–182k per seed. All C1 thresholds dropped to 0.1 (minimum).
+  FINDING: epsilon is a bootstrapping tool, not a permanent policy.
+    At 5k: C0 not fully saturated, epsilon's C1 exploration adds net value.
+    At 20k: C0 is well-trained, epsilon's C1 activations consume ~33% of
+    plasticity budget at slightly lower success rate → drag compounds.
+  Reports: reports/experiment-024.{md,html}
+
+Accuracy progression across experiments:
+  Cursor (exp020 iter4):          0.648
+  Astrocyte firing (exp021):      0.668
+  Astrocyte traffic (exp022):     0.665
+  Epsilon astrocyte 5k (exp023):  0.680  ← peak so far
+  Epsilon astrocyte 20k (exp024): 0.663  ← epsilon overstays its welcome
+
+
+────────────────────────────────────────────────────────────────────────────────
+KEY CONCEPTS / ACCUMULATED INSIGHTS
+────────────────────────────────────────────────────────────────────────────────
+
+1. LOCAL PERTURBATION WORKS
+   Confirmed in iter4: global reward + local synaptic window = real learning.
+   Not homeostasis, not threshold drift — actual weight change.
+
+2. ACTIVITY-GUIDED SELECTION MATTERS
+   Astrocytes (38% accept rate) vs cursor (3.7%). The biological routing
+   hypothesis holds: perturbing synapses in active regions is much more
+   productive than random spatial walks.
+
+3. BOOTSTRAPPING DEADLOCK (cluster 1 dormancy)
+   Dormant territories can't earn low thresholds without activations.
+   Can't get activations without low thresholds.
+   Firing-based sensing (exp021) and traffic-based sensing (exp022) both fail
+   to break the deadlock because the signal itself depends on learned weights.
+
+4. EPSILON SOLVES THE DEADLOCK BUT MUST DECAY
+   1% spontaneous activation breaks the deadlock cleanly (exp023, 4/4 pass).
+   C1 success rates match C0 — the territory is genuinely productive.
+   But constant epsilon at 20k episodes is a drag (exp024, accuracy criterion
+   fails). Once C1 thresholds have dropped and it participates regularly via
+   score, epsilon activations compete with well-trained C0 territory.
+   SOLUTION: decaying epsilon — high initially, taper to 0 after C1 earns
+   regular participation (detected by C1 threshold dropping to near THRESHOLD_MIN).
+
+5. ELIGIBLE SYNAPSE SCALE
+   Astrocyte condition: ~900–1400 synapses/step (1–3 territories, each ~400–600
+   owned synapses). This seems large but accept rate is still 35–38%.
+   The guidance quality (territory active → relevant synapses) matters more than
+   the count. Quantity alone doesn't hurt, but it doesn't substitute for targeting.
+
+6. SOFT REWARD IS NECESSARY
+   Binary reward (6 discrete values for 5 output bits) makes strict > acceptance
+   near-impossible (exp020 iter2: 0% accept rate). Soft reward (sigmoid of
+   activation margin) provides the continuous gradient signal needed.
+
+7. CLUSTER 0 VS CLUSTER 1 ASYMMETRY
+   Cluster 0: input neurons fire every step (driven by pattern). C0 territory
+   always has high firing scores → always selected → learns fast.
+   Cluster 1: output neurons fire rarely with small weights. C1 territory
+   gets near-zero scores initially → dormant → weights stay small → cycle.
+   The asymmetry is structural, not a bug. Any fix must address the cold-start.
+
+
+────────────────────────────────────────────────────────────────────────────────
+CURRENT STATE
+────────────────────────────────────────────────────────────────────────────────
+
+src/ is at experiment 024 state:
+  - EPISODES = 20000 in train.mjs
+  - main.mjs runs epsilon | baseline | control conditions
+  - Outputs experiment-024.md and experiment-024.html
+
+Last backup: backup/2026-02-23_14-45-39_11_experiment-024/
+
+No pending tasks. All experiments complete. Journal up to date.
+
+
+────────────────────────────────────────────────────────────────────────────────
+NEXT EXPERIMENT (not yet started)
+────────────────────────────────────────────────────────────────────────────────
+
+Experiment 025: Decaying Epsilon
+
+Observation: epsilon=0.01 is ideal at ~5k episodes but a drag at 20k.
+C1 thresholds all drop to 0.1 by end of training → C1 activates regularly
+via score. Once that happens, epsilon is just noise.
+
+Proposed mechanism:
+  Option A — Threshold-triggered decay:
+    Each astrocyte's epsilon contribution decays based on its own threshold.
+    When threshold < 0.2 (earned regular participation), epsilon → 0 for that
+    astrocyte. Other astrocytes keep epsilon until they earn it too.
+    Per-astrocyte effective_epsilon = EPSILON * (threshold - THRESHOLD_MIN) /
+      (INITIAL_THRESHOLD - THRESHOLD_MIN)
+    This is self-terminating: C1 bootstraps itself, then stops needing help.
+
+  Option B — Episode-based linear decay:
+    epsilon(episode) = EPSILON * max(0, 1 - episode / EPSILON_DECAY_EPISODES)
+    Simple, global. EPSILON_DECAY_EPISODES = 5000 or 10000.
+    Easier to implement, less biologically motivated.
+
+  Option C — Hybrid: whichever is smaller (per-astrocyte threshold OR linear).
+
+Hypothesis for exp025: decaying epsilon should match or beat baseline at 20k
+episodes, while retaining the C1 bootstrapping benefit of exp023.
+Target: mean accuracy ≥ 0.680, all 4 criteria pass.
+
+Implementation change: one modification to selectActiveAstrocytes in astrocyte.mjs
+and possibly a decayedEpsilon parameter passed from train.mjs per step.
+
+
+────────────────────────────────────────────────────────────────────────────────
+FILE STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+mcfeedback2/
+├── src/
+│   ├── main.mjs          ← entry point (experiment 024)
+│   ├── network.mjs       ← network creation (unchanged since exp020)
+│   ├── propagate.mjs     ← forward pass (unchanged)
+│   ├── task.mjs          ← 8 training patterns + randomPattern()
+│   ├── reward.mjs        ← binary + soft reward (unchanged)
+│   ├── perturb.mjs       ← Gaussian perturbation (unchanged)
+│   ├── rng.mjs           ← Mulberry32 PRNG (unchanged)
+│   ├── inference.mjs     ← frozen evaluation pass (unchanged)
+│   ├── astrocyte.mjs     ← astrocyte objects, sensing, selection, adaptation
+│   ├── train.mjs         ← training loop dispatcher (EPISODES=20000)
+│   ├── report.mjs        ← HTML+MD report generator
+│   ├── cursor.mjs        ← legacy cursor (iter-4 baseline, retained)
+│   └── homeostasis.mjs   ← legacy homeostasis (not used, retained)
+│
+├── reports/
+│   ├── experiment-020.{md,html}         ← iter1 report
+│   ├── experiment-020-iter1.{md,html}
+│   ├── experiment-020-iter2.{md,html}
+│   ├── experiment-020-iter3.{md,html}
+│   ├── experiment-020-iter4.{md,html}   ← cursor ablation (key baseline)
+│   ├── experiment-021.{md,html}         ← astrocyte vs cursor
+│   ├── experiment-022.{md,html}         ← traffic sensing
+│   ├── experiment-023.{md,html}         ← epsilon exploration (4/4 pass)
+│   └── experiment-024.{md,html}         ← 20k episodes (3/4 pass)
+│
+├── backup/
+│   ├── 2026-02-23_11-31-52_1_initial-implementation/
+│   ├── 2026-02-23_11-36-07_2_strict-accept-smaller-radius/
+│   ├── 2026-02-23_11-37-54_3_soft-reward/
+│   ├── 2026-02-23_11-50-57_3_soft-reward-pre-iter4/
+│   ├── 2026-02-23_11-53-53_4_ablation-homeostasis-off/
+│   ├── 2026-02-23_12-26-08_4_pre-exp021/
+│   ├── 2026-02-23_13-13-22_5_experiment-021/
+│   ├── 2026-02-23_13-36-31_6_pre-exp022/
+│   ├── 2026-02-23_13-50-04_7_experiment-022/
+│   ├── 2026-02-23_14-07-54_8_pre-exp023/
+│   ├── 2026-02-23_14-19-43_9_experiment-023/
+│   ├── 2026-02-23_14-30-11_10_pre-exp024/
+│   └── 2026-02-23_14-45-39_11_experiment-024/
+│
+├── journal.md            ← full experiment log (all iterations through exp024)
+├── plan.txt              ← original project rules and cursor mechanism spec
+├── mcfeedback_phase1b_astrocyte_learning.md  ← astrocyte design spec (exp021)
+└── status.txt            ← this file
+
+================================================================================
